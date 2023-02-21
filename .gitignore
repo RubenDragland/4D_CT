@@ -1,0 +1,15 @@
+.vscode
+__pycache__
+.mat
+.vtk
+.raw
+.asv
+.ipynb_checkpoints
+.pdf
+Data sets
+Results
+Figures
+Doc
+Plotting/plots
+trygveur_code
+Grey Goo
