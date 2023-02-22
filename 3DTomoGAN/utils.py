@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 import numpy as np
+
 import imageio
+
 
 binary_cross_entropy = nn.BCEWithLogitsLoss()  # TomoGAN uses BinaryCrossEntropy
 mean_squared_error = nn.MSELoss()

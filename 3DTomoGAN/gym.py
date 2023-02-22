@@ -5,6 +5,9 @@ from models import Discriminator3DTomoGAN, Generator3DTomoGAN
 from data import *
 import torchvision.models as models
 import utils
+from torch.utils.data import DataLoader
+from ignite.metrics import SSIM, PSNR
+import numpy as np
 
 parser = argparse.ArgumentParser(
     description="3DTomoGAN, undersampled reconstruction enhancement 4D-CT"
@@ -26,6 +29,7 @@ parser.add_argument("-itg", type=int, default=1, help="iterations for G")
 parser.add_argument("-itd", type=int, default=4, help="iterations for D")
 parser.add_argument("-maxiter", type=int, default=8000, help="maximum number of epochs")
 parser.add_argument("-dsfn", type=str, required=True, help="h5 dataset file")
+parser.add_argument("-dsfolder", type=str, required=True, help="path dataset folder")
 # parser.add_argument("-print", type=int, default=False, help="1: print to terminal; 0: redirect to file")
 parser.add_argument("-lrateg", type=float, default=1e-4, help="learning rate generator")
 parser.add_argument(
@@ -40,7 +44,7 @@ parser.add_argument(
 
 args, unparsed = parser.parse_known_args()
 
-args, unparsed = parser.parse_known_args()
+
 if len(unparsed) > 0:
     print(
         "Unrecognized argument(s): \n%s \nProgram exiting ... ... "
@@ -69,14 +73,34 @@ device = torch.device(
 )  # RSD: For one gpu
 # RSD: more work if more gpus.
 
+# RSD: Load hparams file
+
+if args.hparams_file == "0":
+    hparams = {}  # RSD: Fix this
+else:
+    hparams = torch.load(args.hparams_file)
+
 # load data
 
-dataloader = None  # RSD.
+full_dataset = Dataset3D(args.dsfn, args.dsfolder)
+
+# RSD: Split data into train, val, test
+train_size = int(hparams["train_split"] * len(full_dataset))
+val_size = int(hparams["val_split"] * len(full_dataset))
+test_size = len(full_dataset) - train_size - val_size
+train_set, val_set, test_set = torch.utils.data.random_split(
+    full_dataset, [train_size, val_size, test_size]
+)
+
+train_dataloader = DataLoader(train_set, batch_size=args.mbsz, shuffle=True)
+val_dataloader = DataLoader(val_set, batch_size=val_size, shuffle=True)
+# RSD: Should save test_set to file for testing later.
+torch.save(test_set, rf"{img_out_dir}\test_set.pt")
 
 # load models
 
-generator = Generator3DTomoGAN()
-discriminator = Discriminator3DTomoGAN()
+generator = Generator3DTomoGAN()  # . to(device)
+discriminator = Discriminator3DTomoGAN()  # . to(device)
 
 pretrained_weights = models.VGG19_BN_Weights.IMAGENET1K_V1
 preprocess = models.vgg19_bn.preprocess_input  # RSD: Check this.
@@ -85,7 +109,7 @@ preprocess = pretrained_weights.transforms()  # RSD: Check this. (transforms?)
 feature_extractor = models.vgg19_bn(
     weights=pretrained_weights, include_top=False
 ).features  # Features are the convolutional layers of the VGG19 network Batch normalised. Not sure if better.
-feature_extractor.eval()
+feature_extractor.eval()  # .to(device)
 
 # Define optimizers
 
@@ -189,6 +213,49 @@ for epoch in range(args.maxiter + 1):
             time.time() - time_git_st,
         )
     )
+
+    # Validation
+    generator.eval()
+    generator.requires_grad_(False)
+    validation_loss = 0
+    ssim_loss = 0
+    psnr_loss = 0
+    # ssim = SSIM(data_range=1.0)
+    # psnr = PSNR(data_range=1.0)
+    for v_ge, val_data in enumerate(val_dataloader, 0):
+        X, Y = None, None  # RSD
+
+        gen_optim.zero_grad()
+        generator_output = generator(X)  # Generator works
+        # Calculate loss
+        loss_mse = utils.mean_squared_error(generator_output, Y)
+        loss_adv = utils.adversarial_loss(discriminator(generator_output))
+
+        # RSD: Now feature extractor loss
+        Y_vgg = preprocess(Y)
+        generator_output_vgg = preprocess(generator_output)
+
+        perc_loss = 0
+        # RSD: Bottleneck. What about vectorised operations?
+        # RSD: However, GPU already...?
+        for i in range(Y_vgg.shape[-1]):  # RSD: Loop over cubic dimensions
+
+            perc_loss += utils.feature_extraction_iteration_loss(
+                feature_extractor, generator_output_vgg, Y_vgg, i
+            )
+
+        # loss_logcosh = utils.logcosh_loss(generator_output, Y) #?
+
+        generator_loss = (
+            args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
+        )
+        # Should also calculate SSIM or something PSNR
+
+        validation_loss += generator_loss.detach().numpy()  # .sum() ? mean() ?
+
+    print(
+        "\n[Info] Epoch: %05d, Validation loss: %.2f \n" % (epoch, validation_loss)
+    )  # RSD ++ Accuracy or PSNR or SSIM
 
     # Save model
     if epoch % args.saveiter == 0:

@@ -6,9 +6,11 @@ import numpy as np
 import torch
 from torchvision.io import read_image
 import imageio
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 import torchvision.transforms.functional as TF
+import torchvision.transforms as transforms
 import pandas as pd
+import h5py
 
 # RSD: Ish initialised.
 
@@ -19,24 +21,25 @@ import pandas as pd
 
 
 class Dataset3D(Dataset):
-    def __init__(self, filename, img_dir_root, transform=None, target_transform=None):
+    def __init__(self, filename, img_dir_root, transform=transforms.Compose[transforms.ToTensor()], target_transform=transforms.Compose[transforms.ToTensor()]):
         self.root = os.path.join(img_dir_root, filename)
         self.filename = filename
         self.transform = transform
         self.target_transform = target_transform
-        self.data = []
-        self.targets = []
-        self._load_data()
+        # self.data = []
+        # self.targets = []
+        # self._load_data()
 
-    def _load_data(self):
-        for file in os.listdir(self.root):
-            if file.endswith(".tif"):
-                self.data.append(os.path.join(self.root, file))
-                self.targets.append(os.path.join(self.root, file))
+    # Not necessary for h5 files
+    # def _load_data(self):
+    #     for file in os.listdir(self.root):
+    #         if file.endswith(".tif"):
+    #             self.data.append(os.path.join(self.root, file))
+    #             self.targets.append(os.path.join(self.root, file))
 
     def __getitem__(self, index):
-        data = read_image(self.data[index])
-        target = read_image(self.targets[index])
+        data = h5py.File(self.root, "r")["data3D"][str(index)] # Thus naming each dataset by index
+        target = h5py.File(self.root, "r")["target3D"][str(index)]
         if self.transform is not None:
             data = self.transform(data)
         if self.target_transform is not None:
@@ -44,9 +47,12 @@ class Dataset3D(Dataset):
         return data, target
 
     def __len__(self):
-        return len(self.data)
+        return len(h5py.File(self.root, "r")["target3D"].keys()) # RSD: Hope this will remain valid and that it works. 
 
 
-class Dataloader3D(DataLoader):
-    # not necessarily need for an own class
-    pass
+# class Dataloader3D(DataLoader):
+#     # not necessarily need for an own class
+#     pass
+
+
+# Split data sets

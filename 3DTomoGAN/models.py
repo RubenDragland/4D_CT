@@ -47,6 +47,7 @@ class Discriminator3DTomoGAN(nn.Module):
         fc_layers = self.create_FCS()
         if self.hparams["FC_layers"]:
             # nn.adaptibeavgpool3d Consider RSD
+            self.layers.append(nn.AdaptiveAvgPool3d((1, 1, 1)))
             self.layers.append(nn.Flatten())
         for layer in fc_layers:
             self.layers.append(layer)
