@@ -21,7 +21,13 @@ import h5py
 
 
 class Dataset3D(Dataset):
-    def __init__(self, filename, img_dir_root, transform=transforms.Compose[transforms.ToTensor()], target_transform=transforms.Compose[transforms.ToTensor()]):
+    def __init__(
+        self,
+        filename,
+        img_dir_root,
+        transform=transforms.Compose[transforms.ToTensor()],
+        target_transform=transforms.Compose[transforms.ToTensor()],
+    ):
         self.root = os.path.join(img_dir_root, filename)
         self.filename = filename
         self.transform = transform
@@ -38,7 +44,9 @@ class Dataset3D(Dataset):
     #             self.targets.append(os.path.join(self.root, file))
 
     def __getitem__(self, index):
-        data = h5py.File(self.root, "r")["data3D"][str(index)] # Thus naming each dataset by index
+        data = h5py.File(self.root, "r")["noisy3D"][
+            str(index).zfill(5)
+        ]  # Thus naming each dataset by index
         target = h5py.File(self.root, "r")["target3D"][str(index)]
         if self.transform is not None:
             data = self.transform(data)
@@ -47,7 +55,9 @@ class Dataset3D(Dataset):
         return data, target
 
     def __len__(self):
-        return len(h5py.File(self.root, "r")["target3D"].keys()) # RSD: Hope this will remain valid and that it works. 
+        return len(
+            h5py.File(self.root, "r")["target3D"].keys()
+        )  # RSD: Hope this will remain valid and that it works.
 
 
 # class Dataloader3D(DataLoader):
