@@ -7,6 +7,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 import h5py
+import pickle as pkl
 
 """
 Here, we will handle tif files obtained at EQNR.
@@ -59,6 +60,7 @@ class ProjectionsEQNR:
         self,
         root,  # RSD: Consider to create correct folder here.
         exp_name,
+        o_root,
         number_of_projections,
         correction_parent=None,
         name_flat="gain0.tif",
@@ -71,6 +73,7 @@ class ProjectionsEQNR:
     ):
         self.root = root
         self.exp_name = exp_name
+        self.o_root = o_root
         self.number_of_projections = number_of_projections
         self.p_roots = [
             os.path.join(root, f"{exp_name}{str(i).zfill(5)}.tif")
@@ -131,7 +134,7 @@ class ProjectionsEQNR:
             im = self.crop_roi(im, self.roi)
             self.projections[i] = im
 
-        # self.save_h5()
+        self.save_h5()
         self.plot_projection(0)
 
     def normalise_projection(self, proj: np.ndarray, tol=1e-6):
@@ -184,10 +187,13 @@ class ProjectionsEQNR:
 
     def save_h5(self):
         """Saving projections as h5 file with geometry data for reconstruction"""
-        with h5py.File(os.path.join(self.root, f"{self.exp_name}.h5"), "w") as f:
+        geom_root = os.path.join(self.o_root, f"{self.exp_name}.pkl")
+        with open(geom_root, "wb+") as g:
+            pkl.dump(self.geometry, g)
+        with h5py.File(os.path.join(self.o_root, f"{self.exp_name}.h5"), "w") as f:
             f.create_dataset("projections", data=self.projections)
             f.create_dataset("angles", data=self.angles)
-            f.create_dataset("geometry", data=self.geometry)
+            # f.create_dataset("geometry", data=self.geometry)
             f.create_group("meta")
             f["meta"].attrs["metallic_mean_n"] = self.metallic_mean_n
             f["meta"].attrs["rotation"] = self.rotation
@@ -198,6 +204,7 @@ class ProjectionsEQNR:
             f["meta"].attrs["name_dark"] = self.name_dark
             f["meta"].attrs["number_of_projections"] = self.number_of_projections
             f["meta"].attrs["exp_name"] = self.exp_name
+            f["meta"].attrs["geometry"] = geom_root
 
         return
 
