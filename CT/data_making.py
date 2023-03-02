@@ -3,7 +3,7 @@ import sys
 import time
 import tqdm
 import numpy as np
-import torch
+import pickle as pkl
 
 # import imageio
 import pandas as pd
@@ -29,19 +29,31 @@ class ReconstructionsDataCT:
     def __init__(self, data_root, data_name):
         self.data_root = data_root
         self.data_name = data_name
+        self.full_path = os.path.join(self.data_root, f"{self.data_name}.h5")
 
-        o = h5py.File(os.path.join(self.data_root, self.data_name), "w")
-        if not isinstance(o[ReconstructionsDataCT.NOISY_KEY], h5py.Group):
+        try:
+            o = h5py.File(self.full_path, "w-")
+        except:
+            o = h5py.File(self.full_path, "r+")
+
+        # o = h5py.File(os.path.join(self.data_root, f"{self.data_name}.h5"), "a+")
+        try:
+            isinstance(o[ReconstructionsDataCT.NOISY_KEY], h5py.Group)
+        except:
             o.create_group(ReconstructionsDataCT.NOISY_KEY)
-        if not isinstance(o[ReconstructionsDataCT.TARGET_KEY], h5py.Group):
+        try:
+            isinstance(o[ReconstructionsDataCT.TARGET_KEY], h5py.Group)
+        except:
             o.create_group(ReconstructionsDataCT.TARGET_KEY)
-        if not isinstance(o[ReconstructionsDataCT.SINO_KEY], h5py.Group):
+        try:
+            isinstance(o[ReconstructionsDataCT.SINO_KEY], h5py.Group)
+        except:
             o.create_group(ReconstructionsDataCT.SINO_KEY)
 
         o.close()
 
     def add_item(self, obj):
-        o = h5py.File(os.path.join(self.data_root, self.data_name), "w")
+        o = h5py.File(self.full_path, "r+")
         f = h5py.File(os.path.join(obj.root, f"{obj.name}.h5"), "r")
         data = obj.reconstruct_target(o, f, self.__len__())
         obj.reconstruct_noisy(o, f, data, self.__len__())
@@ -50,15 +62,11 @@ class ReconstructionsDataCT:
         return
 
     def __len__(self):
-        return len(
-            self.h5py_file[os.path.join(self.data_root, self.data_name)][
-                self.NOISY_KEY
-            ].keys()
-        )
+        return len(h5py.File(self.full_path)[self.NOISY_KEY].keys())
 
     def process_data(self, objects: list):
 
-        o = h5py.File(os.path.join(self.data_root, self.data_name), "w")
+        o = h5py.File(self.full_path, "r+")
 
         for i, obj in enumerate(objects):
 
@@ -167,8 +175,10 @@ class EqNRDataCT(ReconstructionsDataCT):
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
         data = np.squeeze(f[ReconstructionsDataCT.EQNR_PROJECTIONS])
-        geo = f["geometry"]
-        angles = geo["angles"]
+        with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
+            geo = pkl.load(g)
+        # geo = open(pkl.load())  # f["geometry"]
+        angles = np.array(f["angles"])  # geo["angles"]
 
         rec = algs.fdk(data, geo, angles, gpuids=gpuids)
 
@@ -178,20 +188,33 @@ class EqNRDataCT(ReconstructionsDataCT):
         # sino = sino.transpose(2, 0, 1) #RSD: Consider, unsure on format for reconstruction
         return data
 
-    def reconstruct_noisy(self, o, f, data, idx, depth=256):
+    def reconstruct_noisy(
+        self, o, f, data, idx, dyn_slice=True
+    ):  # RSD: Remember to implement dynamical slice
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
-        geo = f["geometry"]
-        angles = geo["angles"]
+        # geo = f["geometry"]
+        with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
+            geo = pkl.load(g)
+        # angles = geo["angles"]
+        angles = np.array(f["angles"])
         data = np.squeeze(f[ReconstructionsDataCT.EQNR_PROJECTIONS])
+        print(data.shape)
 
         # RSD: Add noise if needed. For now undersampling.
 
-        n_projs = np.random.randint(45, 200)  # RSD: How many projections?
+        n_projs = np.random.randint(
+            len(angles) // 16, len(angles)
+        )  # RSD: How many projections?
+        print(len(angles), n_projs)
         slicing = len(angles) // n_projs
-        angles = angles[::slicing]
-        data = data[::slicing]
+        if dyn_slice:
+            angles = angles[:n_projs]
+            data = data[:n_projs]
+        else:
+            angles = angles[::slicing]
+            data = data[::slicing]
 
         rec = algs.fdk(data, geo, angles, gpuids=gpuids)
 

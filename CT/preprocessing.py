@@ -14,17 +14,35 @@ Here, we will handle tif files obtained at EQNR.
 Perhaps make it as a class?
 """
 
+# RSD: Make class to automate this process in case it has changed between scans.
+
 
 class IndustrialGeometryEQNR:
-    def __init__():
+    def __init__(
+        self, default=True, nsprg=True, **kwargs
+    ):  # RSD: Both nsprg and nspro exist.
+
+        if default:
+
+            self.values = {
+                "DSD": 1350,  # Distance Source Detector (mm)
+                "DSO": 930,  # Distance Source Origin (mm)
+                "nDetector": np.array([2048, 2048]),  # number of pixels (px)
+                "dDetector": np.array([0.2, 0.2]),  # size of each pixel (mm)
+            }
+        else:
+            try:
+                self.read_from_file(kwargs["path"])
+            except:
+                raise ValueError("Please provide a path to the file.")
 
         golden_geometry = tigre.geometry(mode="cone", default=True)
 
-        golden_geometry.DSD = 1350  # Distance Source Detector (mm)
-        golden_geometry.DSO = 930  # Distance Source Origin (mm)
+        golden_geometry.DSD = self.values["DSD"]  # Distance Source Detector (mm)
+        golden_geometry.DSO = self.values["DSO"]  # Distance Source Origin (mm)
 
-        golden_geometry.nDetector = np.array([2048, 2048])  # number of pixels (px)
-        golden_geometry.dDetector = np.array([0.2, 0.2])  # size of each pixel (mm)
+        golden_geometry.nDetector = self.values["nDetector"]  # number of pixels (px)
+        golden_geometry.dDetector = self.values["dDetector"]  # size of each pixel (mm)
         golden_geometry.sDetector = (
             golden_geometry.dDetector * golden_geometry.nDetector
         )  # total size of the detector (mm)
@@ -48,28 +66,84 @@ class IndustrialGeometryEQNR:
 
         golden_geometry.COR = 0
 
-        golden_geometry.rotDetector = np.array(
-            [270 / 180 * np.pi, 0, 0]
-        )  # Rotation of detector
+        golden_geometry.rotDetector = np.array([0, 0, 0])  # Rotation of detector
 
         return golden_geometry
+
+    def read_dict_from_file(self, path):
+
+        with open(path, "r") as f:
+            data = f.readlines()
+            data = [line.strip() for line in data]
+            tot_dict = {}
+            keys = []
+            for line in data:
+                k_start = line.find("<")
+                k_end = line.find(">")
+                key = line[k_start + 1 : k_end]
+                keys.append(key)
+                if f"{key[1:]}" in keys[:-1]:
+                    index = keys[:-1].index(key[1:])
+                    keys = keys[:index]
+                    continue
+                info = line[k_end + 1 :]
+                if len(info) == 0:
+                    continue
+                else:
+                    tot_dict["/".join(keys)] = info
+                    keys.pop()
+        return tot_dict
+
+    def read_from_file(self, path, config="CT"):
+        # RSD: Read from file.
+
+        root = f"North Star Imaging DR-Program 1.0/step/{config} Project Configuration/Technique Configuration/"
+
+        attributes = {
+            "DSD": f"{root}Setup/source to detector distance",  # Distance Source Detector (mm)
+            "DSO": f"{root}Setup/source to table distance",  # Distance Source Origin (mm)
+            "pixel_width": f"{root}Detector/pixel width microns",
+            "pixel_height": f"{root}Detector/pixel height microns",
+            "detector_pixel_width": f"{root}Technique Configuration/Detector/width pixels",
+            "detector_pixel_height": f"{root}/Technique Configuration/Detector/height pixels",
+        }
+
+        file_info = self.read_dict_from_file(path)
+
+        self.values = {
+            "DSD": float(file_info[attributes["DSD"]]),
+            "DSO": float(file_info[attributes["DSO"]]),
+            "nDetector": np.array(
+                [
+                    int(file_info[attributes["detector_pixel_width"]]),
+                    int(file_info[attributes["detector_pixel_height"]]),
+                ]
+            ),  # number of pixels (px)
+            "dDetector": np.array(
+                [
+                    float(file_info[attributes["pixel_width"]]) / 1000,
+                    float(file_info[attributes["pixel_height"]]) / 1000,
+                ]
+            ),  # size of each pixel (mm)
+        }
+        return
 
 
 class ProjectionsEQNR:
     def __init__(
         self,
-        root,  # RSD: Consider to create correct folder here.
+        root,
         exp_name,
         o_root,
         number_of_projections,
         correction_parent=None,
         name_flat="gain0.tif",
         name_dark="offset.tif",
-        dtype=np.uint8,  # Not implemented
         geometry=None,
         roi=None,
-        metallic_mean_n=0,
+        metallic_mean_n=0,  # RSD: Calculates angles instead of reading from file.
         rotation=0,
+        mod=False,  #  RSD: Not yet implemented
     ):
         self.root = root
         self.exp_name = exp_name
@@ -95,13 +169,19 @@ class ProjectionsEQNR:
             self.roi = roi
 
         if geometry is None:
-            self.geometry = tigre.geometry(
-                mode="cone",
-                default=True,
-                nVoxel=(self.roi[0], self.roi[0], self.roi[1]),
-            )
+            # self.geometry = tigre.geometry(
+            #     mode="cone",
+            #     default=True,
+            #     nVoxel=(self.roi[0], self.roi[0], self.roi[1]),
+            #     nDetector=(self.roi[0], self.roi[1]),
+            # )
+            self.geometry = IndustrialGeometryEQNR()
         else:
-            self.geometry = geometry
+            self.geometry = IndustrialGeometryEQNR({"path": geometry})
+            self.geometry.nDetector = np.array([self.roi[0], self.roi[1]])
+            self.geometry.nVoxel = np.array([self.roi[0], self.roi[0], self.roi[1]])
+            self.geometry.sVoxel = self.geometry.dVoxel * self.geometry.nVoxel
+            self.geometry.sDetector = self.geometry.dDetector * self.geometry.nDetector
 
         self.rotation = rotation
 
@@ -116,10 +196,11 @@ class ProjectionsEQNR:
         else:
             self.angles = np.linspace(0, 2 * np.pi, self.number_of_projections)
 
-        self.dtype = dtype
         self.projections = None
 
     def __call__(self):
+
+        # RSD: Consider batch processing. Takes some time, but luckily, it will be done only once per dataset.
 
         self.projections = np.zeros(
             (self.number_of_projections, self.roi[0], self.roi[1])

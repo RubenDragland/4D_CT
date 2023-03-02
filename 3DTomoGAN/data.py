@@ -47,7 +47,7 @@ class Dataset3D(Dataset):
         data = h5py.File(self.root, "r")["noisy3D"][
             str(index).zfill(5)
         ]  # Thus naming each dataset by index
-        target = h5py.File(self.root, "r")["target3D"][str(index)]
+        target = h5py.File(self.root, "r")["target3D"][str(index).zfill(5)]
         if self.transform is not None:
             data = self.transform(data)
         if self.target_transform is not None:
