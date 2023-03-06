@@ -6,8 +6,10 @@ from data import *
 import torchvision.models as models
 import utils
 from torch.utils.data import DataLoader
-from ignite.metrics import SSIM, PSNR
+
+# from ignite.metrics import SSIM, PSNR
 import numpy as np
+import logging
 
 parser = argparse.ArgumentParser(
     description="3DTomoGAN, undersampled reconstruction enhancement 4D-CT"
@@ -19,7 +21,7 @@ parser.add_argument("-ladv", type=float, default=20, help="lambda adv")
 parser.add_argument("-lperc", type=float, default=2, help="lambda perceptual")
 parser.add_argument("-llogcosh", type=float, default=3, help="lambda logcosh")
 parser.add_argument(
-    "psz",
+    "-psz",
     type=int,
     default=256,
     help="cropping patch size. If psz=0, then random cropping will be used",
@@ -30,19 +32,26 @@ parser.add_argument("-itd", type=int, default=4, help="iterations for D")
 parser.add_argument("-maxiter", type=int, default=8000, help="maximum number of epochs")
 parser.add_argument("-dsfn", type=str, required=True, help="h5 dataset file")
 parser.add_argument("-dsfolder", type=str, required=True, help="path dataset folder")
-# parser.add_argument("-print", type=int, default=False, help="1: print to terminal; 0: redirect to file")
-parser.add_argument("-lrateg", type=float, default=1e-4, help="learning rate generator")
+parser.add_argument(
+    "-print", type=int, default=False, help="1: print to terminal; 0: redirect to file"
+)
+parser.add_argument(
+    "-lrateg", type=float, default=1e-4, required=False, help="learning rate generator"
+)
 parser.add_argument(
     "-lrated", type=float, default=1e-4, help="learning rate discriminator"
 )
 parser.add_argument(
-    "hparams file", type=str, default="0", help="Name of hparams file. '0' for default"
-)
+    "-hparams_file", type=str, default="0", help="Name of hparams file. '0' for default"
+)  # RSD: Figure this out.
 parser.add_argument(
-    "saveiter", type=int, default=250, help="save model every saveiter iterations"
+    "-saveiter", type=int, default=250, help="save model every saveiter iterations"
 )
 
 args, unparsed = parser.parse_known_args()
+
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 
 if len(unparsed) > 0:
@@ -72,21 +81,24 @@ device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )  # RSD: For one gpu
 # RSD: more work if more gpus.
+logging.debug("Device: %s" % device)
 
 # RSD: Load hparams file
 
 if args.hparams_file == "0":
-    hparams = {}  # RSD: Fix this
+    hparams = None  # {}  # RSD: Fix this
+    data_hparams = {"train_split": 0.9, "val_split": 0.075, "test_split": 0.0025}
 else:
     hparams = torch.load(args.hparams_file)
+    # RSD: Need some fixing.
 
 # load data
 
 full_dataset = Dataset3D(args.dsfn, args.dsfolder)
 
 # RSD: Split data into train, val, test
-train_size = int(hparams["train_split"] * len(full_dataset))
-val_size = int(hparams["val_split"] * len(full_dataset))
+train_size = int(data_hparams["train_split"] * len(full_dataset))
+val_size = int(data_hparams["val_split"] * len(full_dataset))
 test_size = len(full_dataset) - train_size - val_size
 train_set, val_set, test_set = torch.utils.data.random_split(
     full_dataset, [train_size, val_size, test_size]
@@ -95,21 +107,19 @@ train_set, val_set, test_set = torch.utils.data.random_split(
 train_dataloader = DataLoader(train_set, batch_size=args.mbsz, shuffle=True)
 val_dataloader = DataLoader(val_set, batch_size=val_size, shuffle=True)
 # RSD: Should save test_set to file for testing later.
-torch.save(test_set, rf"{img_out_dir}\test_set.pt")
+torch.save(test_set, rf"{itr_out_dir}\test_set.pt")
 
 # load models
 
-generator = Generator3DTomoGAN()  # . to(device)
-discriminator = Discriminator3DTomoGAN()  # . to(device)
+generator = Generator3DTomoGAN().to(device)
+discriminator = Discriminator3DTomoGAN().to(device)
 
 pretrained_weights = models.VGG19_BN_Weights.IMAGENET1K_V1
-preprocess = models.vgg19_bn.preprocess_input  # RSD: Check this.
 preprocess = pretrained_weights.transforms()  # RSD: Check this. (transforms?)
 
-feature_extractor = models.vgg19_bn(
-    weights=pretrained_weights, include_top=False
-).features  # Features are the convolutional layers of the VGG19 network Batch normalised. Not sure if better.
-feature_extractor.eval()  # .to(device)
+feature_extractor = models.vgg19_bn(weights=pretrained_weights).features
+feature_extractor.eval().to(device)
+# Features are the convolutional layers of the VGG19 network Batch normalised. Not sure if better.
 
 # Define optimizers
 
@@ -119,13 +129,16 @@ disc_optim = torch.optim.Adam(discriminator.parameters(), lr=args.lrated)
 # Iterate over epochs
 
 for epoch in range(args.maxiter + 1):
+
+    logging.debug("Epoch: %d" % epoch)
+
     time_git_st = time.time()
     gen_optim.zero_grad()
     discriminator.eval()
     generator.train()
     generator.requires_grad_(True)  # RSD: Necessary?
 
-    for _ge, data in enumerate(dataloader, 0):
+    for _ge, data in enumerate(train_dataloader, 0):
         # Train Generator
         # Generate fake images
         # Calculate loss
@@ -133,19 +146,52 @@ for epoch in range(args.maxiter + 1):
         # Clip weights
         # Update weights
 
-        X, Y = None, None  # dataloader.get_batch(args.mbsz, args.psz) #Get batch data
+        X, Y = data  # RSD: Check if correct unpacking.
+        X, Y = X.to(device), Y.to(device)
+        # None, None  # dataloader.get_batch(args.mbsz, args.psz) #Get batch data
+
+        logging.debug("X shape: %s" % str(X.shape))
+        logging.debug("Y shape: %s" % str(Y.shape))
 
         # Train Generator
         gen_optim.zero_grad()
         generator_output = generator(X)  # Generator works
+        Y = torch.unsqueeze(Y, dim=1)  # RSD: Unsqueeze groups
         # Calculate loss
         loss_mse = utils.mean_squared_error(generator_output, Y)
+
+        logging.debug("Loss MSE: %f" % loss_mse)
+        logging.debug("Generator output shape: %s" % str(generator_output.shape))
+        logging.debug("Y shape: %s" % str(Y.shape))
         loss_adv = utils.adversarial_loss(discriminator(generator_output))
+        logging.debug("Loss adv: %f" % loss_adv)
 
         # RSD: Now feature extractor loss
 
-        Y_vgg = preprocess(Y)
-        generator_output_vgg = preprocess(generator_output)
+        # Y_vgg = preprocess(Y)
+        # generator_output_vgg = preprocess(generator_output)
+        # RSD: Prepare vgg net shape.
+        Y_vgg = np.zeros((Y.shape[0], 3, 224, 224))
+        generator_output_vgg = np.zeros((Y.shape[0], 3, 224, 224))
+
+        # RSD: Debu ends here...
+        for i in range(Y.shape[2]):
+            Y_vgg[:, :, i, :, :] = preprocess(
+                torch.stack(
+                    [Y[:, :, i, :, :], Y[:, :, i, :, :], Y[:, :, i, :, :]],
+                    dim=1,
+                )
+            )
+            generator_output_vgg[:, :, i, :, :] = preprocess(
+                torch.stack(
+                    [
+                        generator_output[:, :, i, :, :],
+                        generator_output[:, :, i, :, :],
+                        generator_output[:, :, i, :, :],
+                    ],
+                    dim=1,
+                )
+            )
 
         perc_loss = 0
 

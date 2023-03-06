@@ -23,7 +23,7 @@ class Discriminator3DTomoGAN(nn.Module):
                 "groups": 1,  # ? Have to be done in all groups eq 1
                 "bias": True,
                 "padding_mode": "same",  # Does this work?
-                "FC_layers": True,
+                "FC_layers": False,  # RSD: Find better name. True does not work.
             }
         else:
             self.hparams = hparams
@@ -36,36 +36,46 @@ class Discriminator3DTomoGAN(nn.Module):
             # RSD: Should work for the first layer, but there is a second layer with S2.
             # RSD: Solution would be to do sequential manually
 
-        self.net = nn.Sequential()
+        # self.net = nn.Sequential()
+        # self.layers = nn.ModuleDict({})  # []
+        # self.layers = nn.ModuleDict()  # {}
         self.layers = []
 
         cnn_layers = self.create_CNNS()
-        for layer in cnn_layers:
+        for i, layer in enumerate(cnn_layers):
             self.layers.append(layer)
             self.layers.append(self.hparams["relu_type"]())
+            # self.layers.update([f"cnn_{i+1}", layer])
+            # self.layers.update([f"cnn_relu_{i+1}", self.hparams["relu_type"]()])
 
         fc_layers = self.create_FCS()
         if self.hparams["FC_layers"]:
             # nn.adaptibeavgpool3d Consider RSD
             self.layers.append(nn.AdaptiveAvgPool3d((1, 1, 1)))
             self.layers.append(nn.Flatten())
+            # self.layers.update(["adaptive_avg_pool", nn.AdaptiveAvgPool3d((1, 1, 1))])
+            # self.layers.update(["flatten", nn.Flatten()])
         for layer in fc_layers:
             self.layers.append(layer)
             self.layers.append(self.hparams["relu_type"]())
+            # self.layers.update([f"fc_{i+1}", layer])
+            # self.layers.update([f"fc_relu_{i+1}", self.hparams["relu_type"]()])
 
-        self.net = nn.Sequential(*self.layers)
+        # self.net = nn.ModuleDict(**self.layers)
+        # self.net = nn.Sequential(*self.layers)
         return
 
     def forward(self, x):
 
-        x = self.net(x)
-        if not self.hparams[
-            "FC_layers"
-        ]:  # Current implementation of global max pooling to get a single value regardless of the input size
-            x = torch.max(x, dim=2, keepdim=True)
-            x = torch.max(x, dim=3, keepdim=True)
-            x = torch.max(x, dim=4, keepdim=True)
-            # RSD: Check what are spatial dimensions, and what are channels
+        # for v in self.layers:
+        #     x = v(x)
+        # x = self.net(x)
+        for layer in self.layers:
+            print(layer)
+            print(x.shape)
+
+            x = layer(x)
+
         return x
 
     def create_CNNS(self):
@@ -105,16 +115,14 @@ class Discriminator3DTomoGAN(nn.Module):
             stride=1,
             padding=self.hparams["padding"],
         )
-        self.C3S2_4 = (
-            nn.Conv3d(
-                in_channels=256,
-                out_channels=4,
-                kernel_size=self.hparams["kernel_size"],
-                stride=2,
-                padding=self.hparams[
-                    "stride2_padding"
-                ],  # RSD: Bug fix. What is the input shape here. Has to be calculated. Possibly give up sequential.
-            ),
+        self.C3S2_4 = nn.Conv3d(
+            in_channels=256,
+            out_channels=4,
+            kernel_size=self.hparams["kernel_size"],
+            stride=2,
+            padding=self.hparams[
+                "stride2_padding"
+            ],  # RSD: Bug fix. What is the input shape here. Has to be calculated. Possibly give up sequential.
         )
 
         return [
@@ -129,7 +137,7 @@ class Discriminator3DTomoGAN(nn.Module):
     def create_FCS(self):
         # RSD: Not fully sure about the below. How to ensure that the output is 1x1x1?
         # self.hparams["relu_type"](),
-        if self.hparams["FC_layers"]:
+        if not self.hparams["FC_layers"]:
             self.FC_64 = nn.Conv3d(
                 in_channels=4,
                 out_channels=64,  # RSD; Think this works as FC layer with 64 nodes.
@@ -260,7 +268,7 @@ class Generator3DTomoGAN(nn.Module):
         block.append(self.hparams["relu_type"]())
         block.append(
             nn.Conv3d(
-                in_channels=in_ch,
+                in_channels=out_ch,
                 out_channels=out_ch,
                 kernel_size=3,
                 stride=1,
@@ -272,12 +280,13 @@ class Generator3DTomoGAN(nn.Module):
 
     def forward(self, x):
         skip_connections = []
+        x = torch.unsqueeze(x, dim=1)  # RSD: Group hack
         x = self.net_down1(x)
-        skip_connections.append(x.copy())
+        skip_connections.append(x.clone())
         x = self.net_down2(x)
-        skip_connections.append(x.copy())
+        skip_connections.append(x.clone())
         x = self.net_down3(x)
-        skip_connections.append(x.copy())
+        skip_connections.append(x.clone())
         x = self.net_feature(x)
         x = torch.cat((x, skip_connections[2]), dim=1)
         x = self.net_up1(x)
@@ -285,6 +294,8 @@ class Generator3DTomoGAN(nn.Module):
         x = self.net_up2(x)
         x = torch.cat((x, skip_connections[0]), dim=1)
         x = self.net_up3(x)
+
+        print(x.shape)
         return x
 
 

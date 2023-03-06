@@ -29,6 +29,8 @@ def adversarial_loss(fake_output):
 # RSD: This part is unoptimised. Might be slow, and is a part of a loop...
 def feature_extraction_iteration_loss(feature_extractor, X_vgg, Y_vgg, i):
 
+    # RSD: This expansion may be unnecessary
+
     X_vgg_extracted_x = feature_extractor(
         torch.cat(
             [
