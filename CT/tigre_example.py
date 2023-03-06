@@ -35,6 +35,13 @@ angles = np.linspace(0, 2 * np.pi, nangles, endpoint=False, dtype=np.float32)
 
 # Prepare projection data
 head = sample_loader.load_head_phantom(geo.nVoxel)
+# print(head.shape) # (256, 256, 256) axis 1 and 2 give xy plane
+# plt.imshow(head[geo.nVoxel[0] // 2])
+# plt.show()
+# plt.imshow(head[:, geo.nVoxel[1] // 2, :])
+# plt.show()
+# plt.imshow(head[:, :, geo.nVoxel[2] // 2])
+# plt.show()
 proj = tigre.Ax(head, geo, angles, gpuids=gpuids)
 
 # Reconstruct
