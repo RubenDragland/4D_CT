@@ -81,13 +81,15 @@ device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )  # RSD: For one gpu
 # RSD: more work if more gpus.
+device = torch.device("cpu")  # RSD: Because of memory.
+
 logging.debug("Device: %s" % device)
 
 # RSD: Load hparams file
 
 if args.hparams_file == "0":
     hparams = None  # {}  # RSD: Fix this
-    data_hparams = {"train_split": 0.9, "val_split": 0.075, "test_split": 0.0025}
+    data_hparams = {"train_split": 0.1, "val_split": 0.1, "test_split": 0.8}
 else:
     hparams = torch.load(args.hparams_file)
     # RSD: Need some fixing.
@@ -97,12 +99,16 @@ else:
 full_dataset = Dataset3D(args.dsfn, args.dsfolder)
 
 # RSD: Split data into train, val, test
-train_size = int(data_hparams["train_split"] * len(full_dataset))
-val_size = int(data_hparams["val_split"] * len(full_dataset))
+# train_size = int(data_hparams["train_split"] * len(full_dataset))
+train_size = 2
+# val_size = int(data_hparams["val_split"] * len(full_dataset))
+val_size = 1
 test_size = len(full_dataset) - train_size - val_size
 train_set, val_set, test_set = torch.utils.data.random_split(
     full_dataset, [train_size, val_size, test_size]
 )
+
+# RSD: Temp reduction of data size due to debugging.
 
 train_dataloader = DataLoader(train_set, batch_size=args.mbsz, shuffle=True)
 val_dataloader = DataLoader(val_set, batch_size=val_size, shuffle=True)
@@ -138,6 +144,7 @@ for epoch in range(args.maxiter + 1):
     generator.train()
     generator.requires_grad_(True)  # RSD: Necessary?
 
+    # RSD: Notice that iterations generator and discriminator are not utilised in this version. Complete the dataloader instead. Will have to check if this works.
     for _ge, data in enumerate(train_dataloader, 0):
         # Train Generator
         # Generate fake images
@@ -145,6 +152,8 @@ for epoch in range(args.maxiter + 1):
         # Backpropagate
         # Clip weights
         # Update weights
+
+        logging.debug(f"Gen Batch: {_ge}")
 
         X, Y = data  # RSD: Check if correct unpacking.
         X, Y = X.to(device), Y.to(device)
@@ -160,9 +169,8 @@ for epoch in range(args.maxiter + 1):
         # Calculate loss
         loss_mse = utils.mean_squared_error(generator_output, Y)
 
-        logging.debug("Loss MSE: %f" % loss_mse)
         logging.debug("Generator output shape: %s" % str(generator_output.shape))
-        logging.debug("Y shape: %s" % str(Y.shape))
+        logging.debug("Loss MSE: %f" % loss_mse)
         loss_adv = utils.adversarial_loss(discriminator(generator_output))
         logging.debug("Loss adv: %f" % loss_adv)
 
@@ -171,18 +179,28 @@ for epoch in range(args.maxiter + 1):
         # Y_vgg = preprocess(Y)
         # generator_output_vgg = preprocess(generator_output)
         # RSD: Prepare vgg net shape.
-        Y_vgg = np.zeros((Y.shape[0], 3, 224, 224))
-        generator_output_vgg = np.zeros((Y.shape[0], 3, 224, 224))
+        # Y_vgg = torch.zeros((Y.shape[0], 3, Y.shape[2], 224, 224)).to(device)
+        # generator_output_vgg = torch.zeros((Y.shape[0], 3, Y.shape[2], 224, 224)).to(
+        #     device
+        # )
+        # RSD: Check requires grad etc.
 
-        # RSD: Debu ends here...
+        perc_loss = 0
+
         for i in range(Y.shape[2]):
-            Y_vgg[:, :, i, :, :] = preprocess(
+            # RSD: Check if squeeze fucks up with minibatch size 1...? Or it works, but will size 2 be accepted? 2 not accepted.
+            # Possibly perform this for one slice at a time since loop already. Save memory.
+
+            Y_vgg = torch.squeeze(
                 torch.stack(
                     [Y[:, :, i, :, :], Y[:, :, i, :, :], Y[:, :, i, :, :]],
                     dim=1,
                 )
             )
-            generator_output_vgg[:, :, i, :, :] = preprocess(
+            Y_vgg = torch.squeeze(Y_vgg)
+            Y_vgg = preprocess(Y_vgg)
+
+            generator_output_vgg = torch.squeeze(
                 torch.stack(
                     [
                         generator_output[:, :, i, :, :],
@@ -192,23 +210,27 @@ for epoch in range(args.maxiter + 1):
                     dim=1,
                 )
             )
+            generator_output_vgg = preprocess(generator_output_vgg)
+            # perc_loss += utils.feature_extraction_iteration_loss(
+            #     feature_extractor, generator_output_vgg, Y_vgg, i
+            # )
+            perc_loss += utils.slice_feature_extraction_loss(
+                feature_extractor, generator_output_vgg, Y_vgg
+            )
 
-        perc_loss = 0
+        logging.debug(
+            "generator_output_vgg shape: %s" % str(generator_output_vgg.shape)
+        )
 
         # RSD: Bottleneck. What about vectorised operations?
         # RSD: However, GPU already...?
-        for i in range(Y_vgg.shape[-1]):  # RSD: Loop over cubic dimensions
-
-            perc_loss += utils.feature_extraction_iteration_loss(
-                feature_extractor, generator_output_vgg, Y_vgg, i
-            )
+        # RSD: Loop over cubic dimensions. Also, preprocessing is only done for every crossection.
 
         # loss_logcosh = utils.logcosh_loss(generator_output, Y) #?
 
         generator_loss = (
             args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
         )
-        # + args.llogcosh * loss_logcosh
 
         generator_loss.backward()
         gen_optim.step()
@@ -218,10 +240,10 @@ for epoch in range(args.maxiter + 1):
         % (
             epoch,
             (time.time() - time_git_st) / args.itg,
-            generator_loss.detach().numpy().mean(),
-            loss_mse.detach().numpy().mean() * args.lmse,
-            loss_adv.detach().numpy().mean() * args.ladv,
-            perc_loss.detach().numpy().mean() * args.lperc,
+            generator_loss.cpu().detach().numpy(),
+            loss_mse.cpu().detach().numpy().mean() * args.lmse,
+            loss_adv.cpu().detach().numpy().mean() * args.ladv,
+            perc_loss.cpu().detach().numpy().mean() * args.lperc,
         )
     )
     time_dit_st = time.time()
@@ -232,8 +254,9 @@ for epoch in range(args.maxiter + 1):
     gen_optim.zero_grad()
     generator.requires_grad_(False)
     generator.eval()
-    for _de in range(args.itd):
-        X, Y = None, None
+    for _de, data in enumerate(train_dataloader, 0):
+        X, Y = data
+        X, Y = X.to(device), Y.to(device)
 
         disc_optim.zero_grad()
 
@@ -252,9 +275,9 @@ for epoch in range(args.maxiter + 1):
         "%s; dloss: %.2f (r%.3f, f%.3f), disc_elapse: %.2fs/itr, gan_elapse: %.2fs/itr"
         % (
             itr_prints_gen,
-            discriminator_loss,
-            discriminator_real.detach().numpy().mean(),
-            discriminator_fake.detach().numpy().mean(),
+            discriminator_loss.cpu().detach().numpy().mean(),
+            discriminator_real.cpu().detach().numpy().mean(),
+            discriminator_fake.cpu().detach().numpy().mean(),
             (time.time() - time_dit_st) / args.itd,
             time.time() - time_git_st,
         )
@@ -269,54 +292,107 @@ for epoch in range(args.maxiter + 1):
     # ssim = SSIM(data_range=1.0)
     # psnr = PSNR(data_range=1.0)
     for v_ge, val_data in enumerate(val_dataloader, 0):
-        X, Y = None, None  # RSD
+
+        X, Y = val_data
+        X, Y = X.to(device), Y.to(device)
 
         gen_optim.zero_grad()
         generator_output = generator(X)  # Generator works
+        Y = torch.unsqueeze(Y, dim=1)  # RSD: Unsqueeze groups
+
         # Calculate loss
         loss_mse = utils.mean_squared_error(generator_output, Y)
         loss_adv = utils.adversarial_loss(discriminator(generator_output))
 
         # RSD: Now feature extractor loss
-        Y_vgg = preprocess(Y)
-        generator_output_vgg = preprocess(generator_output)
+        # RSD: Same changes as above necessary.
 
         perc_loss = 0
-        # RSD: Bottleneck. What about vectorised operations?
-        # RSD: However, GPU already...?
-        for i in range(Y_vgg.shape[-1]):  # RSD: Loop over cubic dimensions
 
-            perc_loss += utils.feature_extraction_iteration_loss(
-                feature_extractor, generator_output_vgg, Y_vgg, i
+        for i in range(Y.shape[2]):
+            Y_vgg = preprocess(
+                torch.squeeze(
+                    torch.stack(
+                        [Y[:, :, i, :, :], Y[:, :, i, :, :], Y[:, :, i, :, :]],
+                        dim=1,
+                    )
+                )
+            )
+            generator_output_vgg = preprocess(
+                torch.squeeze(
+                    torch.stack(
+                        [
+                            generator_output[:, :, i, :, :],
+                            generator_output[:, :, i, :, :],
+                            generator_output[:, :, i, :, :],
+                        ],
+                        dim=1,
+                    )
+                )
             )
 
-        # loss_logcosh = utils.logcosh_loss(generator_output, Y) #?
+            perc_loss += utils.slice_feature_extraction_loss(
+                feature_extractor, generator_output_vgg, Y_vgg
+            )
 
         generator_loss = (
             args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
         )
-        # Should also calculate SSIM or something PSNR
 
-        validation_loss += generator_loss.detach().numpy()  # .sum() ? mean() ?
+        validation_loss += generator_loss.cpu().detach().numpy().mean()
+
+        # RSD: Bottleneck. What about vectorised operations?
+        # RSD: However, GPU memory???
+        # for i in range(Y_vgg.shape[-1]):  # RSD: Loop over cubic dimensions
+
+        #     perc_loss += utils.feature_extraction_iteration_loss(
+        #         feature_extractor, generator_output_vgg, Y_vgg, i
+        #     )
+
+        # # loss_logcosh = utils.logcosh_loss(generator_output, Y) #?
+
+        # generator_loss = (
+        #     args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
+        # )
+        # # Should also calculate SSIM or something PSNR
+
+        # validation_loss += (
+        #     generator_loss.cpu().detach().numpy().mean()
+        # )  # .sum() ? mean() ?
 
     print(
-        "\n[Info] Epoch: %05d, Validation loss: %.2f \n" % (epoch, validation_loss)
+        "\n[Info] Epoch: %05d, Validation loss: %.2f \n"
+        % (epoch, validation_loss / len(val_dataloader))
     )  # RSD ++ Accuracy or PSNR or SSIM
 
     # Save model
+    if epoch == 0:
+        Ys = np.squeeze(Y.cpu().detach().numpy())
+        slice = Ys.shape[0] // 2
+        utils.save2img(Ys[slice, :, :], "%s/gt%05d_x.png" % (itr_out_dir, epoch))
+        utils.save2img(Ys[:, slice, :], "%s/gt%05d_y.png" % (itr_out_dir, epoch))
+        utils.save2img(Ys[:, :, slice], "%s/gt%05d_z.png" % (itr_out_dir, epoch))
+
+        Y = np.squeeze(Y.cpu().detach().numpy())
+        slice = Y.shape[0] // 2
+        utils.save2img(Y[slice, :, :], "%s/in%05d_x.png" % (itr_out_dir, epoch))
+        utils.save2img(Y[:, slice, :], "%s/in%05d_y.png" % (itr_out_dir, epoch))
+        utils.save2img(Y[:, :, slice], "%s/in%05d_z.png" % (itr_out_dir, epoch))
+
     if epoch % args.saveiter == 0:
 
-        Xs, Ys = None, None
+        Xs = np.squeeze(generator_output.cpu().detach().numpy())
+        logging.debug("Xs.shape: %s" % str(Xs.shape))
 
-        output = generator(Xs)
-        output = output.detach().cpu().numpy()
-        output = np.squeeze(output)
+        # output = generator(Xs)
+        # output = output.cpu().detach().numpy()
+        # output = np.squeeze(output)
 
-        slice = output.shape[0] // 2
+        slice = Xs.shape[-1] // 2
 
-        utils.save2img(output[slice, :, :], "%s/it%05d_x" % (itr_out_dir, epoch))
-        utils.save2img(output[:, slice, :], "%s/it%05d_y" % (itr_out_dir, epoch))
-        utils.save2img(output[:, :, slice], "%s/it%05d_z" % (itr_out_dir, epoch))
+        utils.save2img(Xs[slice, :, :], "%s/it%05d_x.png" % (itr_out_dir, epoch))
+        utils.save2img(Xs[:, slice, :], "%s/it%05d_y.png" % (itr_out_dir, epoch))
+        utils.save2img(Xs[:, :, slice], "%s/it%05d_z.png" % (itr_out_dir, epoch))
 
         torch.save(generator.state_dict(), "%s/it%05d_gen.pth" % (itr_out_dir, epoch))
 

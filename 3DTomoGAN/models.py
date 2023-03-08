@@ -71,8 +71,6 @@ class Discriminator3DTomoGAN(nn.Module):
         #     x = v(x)
         # x = self.net(x)
         for layer in self.layers:
-            print(layer)
-            print(x.shape)
 
             x = layer(x)
 
@@ -295,7 +293,6 @@ class Generator3DTomoGAN(nn.Module):
         x = torch.cat((x, skip_connections[0]), dim=1)
         x = self.net_up3(x)
 
-        print(x.shape)
         return x
 
 
