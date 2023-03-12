@@ -11,6 +11,9 @@ from torch.utils.data import DataLoader
 import numpy as np
 import logging
 
+# RSD: Profiling
+from torch.profiler import profile, record_function, ProfilerActivity, schedule
+
 parser = argparse.ArgumentParser(
     description="3DTomoGAN, undersampled reconstruction enhancement 4D-CT"
 )
@@ -81,7 +84,7 @@ device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )  # RSD: For one gpu
 # RSD: more work if more gpus.
-device = torch.device("cpu")  # RSD: Because of memory.
+# device = torch.device("cpu")  # RSD: Because of memory.
 
 logging.debug("Device: %s" % device)
 
@@ -89,19 +92,22 @@ logging.debug("Device: %s" % device)
 
 if args.hparams_file == "0":
     hparams = None  # {}  # RSD: Fix this
-    data_hparams = {"train_split": 0.1, "val_split": 0.1, "test_split": 0.8}
+    data_hparams = {"train_split": 0.875, "val_split": 0.125, "test_split": 0.0}
 else:
     hparams = torch.load(args.hparams_file)
     # RSD: Need some fixing.
 
 # load data
+mem = torch.cuda.mem_get_info()
+logging.debug("Before loading: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
 full_dataset = Dataset3D(args.dsfn, args.dsfolder)
 
+
 # RSD: Split data into train, val, test
-# train_size = int(data_hparams["train_split"] * len(full_dataset))
-train_size = 2
-# val_size = int(data_hparams["val_split"] * len(full_dataset))
+train_size = int(data_hparams["train_split"] * len(full_dataset))
+train_size = 1
+val_size = int(data_hparams["val_split"] * len(full_dataset))
 val_size = 1
 test_size = len(full_dataset) - train_size - val_size
 train_set, val_set, test_set = torch.utils.data.random_split(
@@ -115,6 +121,9 @@ val_dataloader = DataLoader(val_set, batch_size=val_size, shuffle=True)
 # RSD: Should save test_set to file for testing later.
 torch.save(test_set, rf"{itr_out_dir}\test_set.pt")
 
+mem = torch.cuda.mem_get_info()
+logging.debug("After loading: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
+
 # load models
 
 generator = Generator3DTomoGAN().to(device)
@@ -127,12 +136,41 @@ feature_extractor = models.vgg19_bn(weights=pretrained_weights).features
 feature_extractor.eval().to(device)
 # Features are the convolutional layers of the VGG19 network Batch normalised. Not sure if better.
 
+mem = torch.cuda.mem_get_info()
+logging.debug("Loaded vgg: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
+
 # Define optimizers
 
 gen_optim = torch.optim.Adam(generator.parameters(), lr=args.lrateg)
 disc_optim = torch.optim.Adam(discriminator.parameters(), lr=args.lrated)
 
 # Iterate over epochs
+
+# RSD: Start profiling
+def handler(p):
+    # print(p.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
+    print(
+        p.key_averages(group_by_input_shape=True).table(
+            sort_by="cpu_time_total", row_limit=10
+        )
+    )
+    print(
+        p.key_averages(group_by_input_shape=True).table(
+            sort_by="self_cpu_memory_usage", row_limit=10
+        )
+    )
+    return
+
+
+# my_schedule = schedule(skip_first=1, wait=0, warmup=1, active=5, repeat=2)
+
+# with profile(
+#     activities=[ProfilerActivity.CPU],
+#     profile_memory=True,
+#     record_shapes=True,
+#     schedule=my_schedule,
+#     on_trace_ready=handler,
+# ) as p:
 
 for epoch in range(args.maxiter + 1):
 
@@ -143,6 +181,9 @@ for epoch in range(args.maxiter + 1):
     discriminator.eval()
     generator.train()
     generator.requires_grad_(True)  # RSD: Necessary?
+
+    mem = torch.cuda.mem_get_info()
+    logging.debug("Begin epoch: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
     # RSD: Notice that iterations generator and discriminator are not utilised in this version. Complete the dataloader instead. Will have to check if this works.
     for _ge, data in enumerate(train_dataloader, 0):
@@ -156,8 +197,11 @@ for epoch in range(args.maxiter + 1):
         logging.debug(f"Gen Batch: {_ge}")
 
         X, Y = data  # RSD: Check if correct unpacking.
-        X, Y = X.to(device), Y.to(device)
-        # None, None  # dataloader.get_batch(args.mbsz, args.psz) #Get batch data
+        logging.debug(f"Dataloader Dtype:   {X.dtype}")
+        X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
+            device
+        )
+        logging.debug(f"Dtype:   {X.dtype}")
 
         logging.debug("X shape: %s" % str(X.shape))
         logging.debug("Y shape: %s" % str(Y.shape))
@@ -165,7 +209,6 @@ for epoch in range(args.maxiter + 1):
         # Train Generator
         gen_optim.zero_grad()
         generator_output = generator(X)  # Generator works
-        Y = torch.unsqueeze(Y, dim=1)  # RSD: Unsqueeze groups
         # Calculate loss
         loss_mse = utils.mean_squared_error(generator_output, Y)
 
@@ -184,6 +227,9 @@ for epoch in range(args.maxiter + 1):
         #     device
         # )
         # RSD: Check requires grad etc.
+
+        mem = torch.cuda.mem_get_info()
+        logging.debug("Before perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
         perc_loss = 0
 
@@ -218,12 +264,10 @@ for epoch in range(args.maxiter + 1):
                 feature_extractor, generator_output_vgg, Y_vgg
             )
 
-        logging.debug(
-            "generator_output_vgg shape: %s" % str(generator_output_vgg.shape)
-        )
+        logging.debug("Perc loss: %f" % perc_loss)
+        mem = torch.cuda.mem_get_info()
+        logging.debug("After perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
-        # RSD: Bottleneck. What about vectorised operations?
-        # RSD: However, GPU already...?
         # RSD: Loop over cubic dimensions. Also, preprocessing is only done for every crossection.
 
         # loss_logcosh = utils.logcosh_loss(generator_output, Y) #?
@@ -231,6 +275,7 @@ for epoch in range(args.maxiter + 1):
         generator_loss = (
             args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
         )
+        logging.debug("Generator loss: %f" % generator_loss)
 
         generator_loss.backward()
         gen_optim.step()
@@ -254,9 +299,17 @@ for epoch in range(args.maxiter + 1):
     gen_optim.zero_grad()
     generator.requires_grad_(False)
     generator.eval()
+
+    mem = torch.cuda.mem_get_info()
+    logging.debug(
+        "Before discriminator: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024)
+    )
+
     for _de, data in enumerate(train_dataloader, 0):
         X, Y = data
-        X, Y = X.to(device), Y.to(device)
+        X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
+            device
+        )
 
         disc_optim.zero_grad()
 
@@ -267,6 +320,7 @@ for epoch in range(args.maxiter + 1):
         discriminator_loss = utils.discriminator_loss(
             discriminator_real, discriminator_fake
         )
+        logging.debug("Discriminator loss: %f" % discriminator_loss)
 
         discriminator_loss.backward()
         disc_optim.step()
@@ -282,6 +336,8 @@ for epoch in range(args.maxiter + 1):
             time.time() - time_git_st,
         )
     )
+    mem = torch.cuda.mem_get_info()
+    logging.debug("Before validation: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
     # Validation
     generator.eval()
@@ -294,11 +350,12 @@ for epoch in range(args.maxiter + 1):
     for v_ge, val_data in enumerate(val_dataloader, 0):
 
         X, Y = val_data
-        X, Y = X.to(device), Y.to(device)
+        X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
+            device
+        )
 
         gen_optim.zero_grad()
         generator_output = generator(X)  # Generator works
-        Y = torch.unsqueeze(Y, dim=1)  # RSD: Unsqueeze groups
 
         # Calculate loss
         loss_mse = utils.mean_squared_error(generator_output, Y)
@@ -341,25 +398,6 @@ for epoch in range(args.maxiter + 1):
 
         validation_loss += generator_loss.cpu().detach().numpy().mean()
 
-        # RSD: Bottleneck. What about vectorised operations?
-        # RSD: However, GPU memory???
-        # for i in range(Y_vgg.shape[-1]):  # RSD: Loop over cubic dimensions
-
-        #     perc_loss += utils.feature_extraction_iteration_loss(
-        #         feature_extractor, generator_output_vgg, Y_vgg, i
-        #     )
-
-        # # loss_logcosh = utils.logcosh_loss(generator_output, Y) #?
-
-        # generator_loss = (
-        #     args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
-        # )
-        # # Should also calculate SSIM or something PSNR
-
-        # validation_loss += (
-        #     generator_loss.cpu().detach().numpy().mean()
-        # )  # .sum() ? mean() ?
-
     print(
         "\n[Info] Epoch: %05d, Validation loss: %.2f \n"
         % (epoch, validation_loss / len(val_dataloader))
@@ -367,21 +405,21 @@ for epoch in range(args.maxiter + 1):
 
     # Save model
     if epoch == 0:
-        Ys = np.squeeze(Y.cpu().detach().numpy())
+        Ys = np.squeeze(Y[0].cpu().detach().numpy())
         slice = Ys.shape[0] // 2
         utils.save2img(Ys[slice, :, :], "%s/gt%05d_x.png" % (itr_out_dir, epoch))
         utils.save2img(Ys[:, slice, :], "%s/gt%05d_y.png" % (itr_out_dir, epoch))
         utils.save2img(Ys[:, :, slice], "%s/gt%05d_z.png" % (itr_out_dir, epoch))
 
-        Y = np.squeeze(Y.cpu().detach().numpy())
+        Xs = np.squeeze(X[0].cpu().detach().numpy())
         slice = Y.shape[0] // 2
-        utils.save2img(Y[slice, :, :], "%s/in%05d_x.png" % (itr_out_dir, epoch))
-        utils.save2img(Y[:, slice, :], "%s/in%05d_y.png" % (itr_out_dir, epoch))
-        utils.save2img(Y[:, :, slice], "%s/in%05d_z.png" % (itr_out_dir, epoch))
+        utils.save2img(Xs[slice, :, :], "%s/in%05d_x.png" % (itr_out_dir, epoch))
+        utils.save2img(Xs[:, slice, :], "%s/in%05d_y.png" % (itr_out_dir, epoch))
+        utils.save2img(Xs[:, :, slice], "%s/in%05d_z.png" % (itr_out_dir, epoch))
 
     if epoch % args.saveiter == 0:
 
-        Xs = np.squeeze(generator_output.cpu().detach().numpy())
+        Xs = np.squeeze(generator_output[0].cpu().detach().numpy())
         logging.debug("Xs.shape: %s" % str(Xs.shape))
 
         # output = generator(Xs)
@@ -400,3 +438,5 @@ for epoch in range(args.maxiter + 1):
         # generator = Generator3DTomoGAN()
         # generator.load_state_dict(torch.load('generator.pth'))
         # generator.eval()
+
+    # p.step()  # Profiling

@@ -47,7 +47,7 @@ class Dataset3D(Dataset):
         data = torch.from_numpy(
             np.array(
                 h5py.File(self.root, "r")["noisy3D"][str(index).zfill(5)][
-                    224:-224, 96:-96, 96:-96
+                    240:-240, 112:-112, 112:-112
                 ]
             )
         )
@@ -55,7 +55,7 @@ class Dataset3D(Dataset):
         target = torch.from_numpy(
             np.array(
                 h5py.File(self.root, "r")["target3D"][str(index).zfill(5)][
-                    224:-224, 96:-96, 96:-96
+                    240:-240, 112:-112, 112:-112
                 ]
             )
         )

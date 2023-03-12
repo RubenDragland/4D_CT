@@ -16,6 +16,8 @@ mean_squared_error = nn.MSELoss()
 def discriminator_loss(real_output, fake_output):
     real_loss = binary_cross_entropy(real_output, torch.ones_like(real_output))
     fake_loss = binary_cross_entropy(fake_output, torch.zeros_like(fake_output))
+    print("real_loss: ", real_loss.item())
+    print("fake_loss: ", fake_loss.item())
     total_loss = real_loss + fake_loss
     return total_loss
 
@@ -35,7 +37,6 @@ def slice_feature_extraction_loss(feature_extractor, X_vgg, Y_vgg):
     Y_vgg = torch.unsqueeze(Y_vgg, 0) if len(Y_vgg.shape) == 3 else Y_vgg
 
     X_vgg = feature_extractor(X_vgg)  # N, C, H, W
-
     Y_vgg = feature_extractor(Y_vgg)  # N, C, H, W
 
     return mean_squared_error(X_vgg.reshape(-1), Y_vgg.reshape(-1))
