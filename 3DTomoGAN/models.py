@@ -65,18 +65,18 @@ class Discriminator3DTomoGAN(nn.Module):
             # self.layers.update([f"fc_relu_{i+1}", self.hparams["relu_type"]()])
 
         # self.net = nn.ModuleDict(**self.layers)
-        # self.net = nn.Sequential(*self.layers)
+        self.net = nn.Sequential(*self.layers)
         return
 
     def forward(self, x):
 
         # for v in self.layers:
         #     x = v(x)
-        # x = self.net(x)
+        x = self.net(x)
         # x = torch.unsqueeze(x, dim=1)  # RSD: Group hack
-        for layer in self.layers:
+        # for layer in self.layers:
 
-            x = layer(x)
+        # x = layer(x)
 
         return x
 
