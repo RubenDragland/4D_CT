@@ -37,9 +37,6 @@ class Discriminator3DTomoGAN(nn.Module):
             # RSD: Should work for the first layer, but there is a second layer with S2.
             # RSD: Solution would be to do sequential manually
 
-        # self.net = nn.Sequential()
-        # self.layers = nn.ModuleDict({})  # []
-        # self.layers = nn.ModuleDict()  # {}
         self.layers = []
 
         cnn_layers = self.create_CNNS()

@@ -54,7 +54,7 @@ parser.add_argument(
 args, unparsed = parser.parse_known_args()
 
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 if len(unparsed) > 0:
@@ -86,7 +86,7 @@ device = torch.device(
 # RSD: more work if more gpus.
 # device = torch.device("cpu")  # RSD: Because of memory.
 
-logging.debug("Device: %s" % device)
+logging.info("Device: %s" % device)
 
 # RSD: Load hparams file
 
@@ -106,7 +106,7 @@ full_dataset = Dataset3D(args.dsfn, args.dsfolder)
 
 # RSD: Split data into train, val, test
 train_size = int(data_hparams["train_split"] * len(full_dataset))
-train_size = 1
+train_size = 6
 val_size = int(data_hparams["val_split"] * len(full_dataset))
 val_size = 1
 test_size = len(full_dataset) - train_size - val_size
@@ -152,49 +152,25 @@ logging.debug("Loaded vgg: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 gen_optim = torch.optim.Adam(generator.parameters(), lr=args.lrateg)
 disc_optim = torch.optim.Adam(discriminator.parameters(), lr=args.lrated)
 
-# Iterate over epochs
-
-# RSD: Start profiling
-def handler(p):
-    # print(p.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
-    print(
-        p.key_averages(group_by_input_shape=True).table(
-            sort_by="cpu_time_total", row_limit=10
-        )
-    )
-    print(
-        p.key_averages(group_by_input_shape=True).table(
-            sort_by="self_cpu_memory_usage", row_limit=10
-        )
-    )
-    return
-
-
-# my_schedule = schedule(skip_first=1, wait=0, warmup=1, active=5, repeat=2)
-
-# with profile(
-#     activities=[ProfilerActivity.CPU],
-#     profile_memory=True,
-#     record_shapes=True,
-#     schedule=my_schedule,
-#     on_trace_ready=handler,
-# ) as p:
 
 for epoch in range(args.maxiter + 1):
 
     logging.debug("Epoch: %d" % epoch)
 
     time_git_st = time.time()
+    mem = torch.cuda.mem_get_info()
+    logging.info("Begin epoch: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
+
     gen_optim.zero_grad()
     discriminator.eval()
+    discriminator.requires_grad_(False)
     generator.train()
-    generator.requires_grad_(True)  # RSD: Necessary?
+    generator.requires_grad_(True)
 
-    mem = torch.cuda.mem_get_info()
-    logging.debug("Begin epoch: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
+    for _ge in range(args.itg):
 
-    # RSD: Notice that iterations generator and discriminator are not utilised in this version. Complete the dataloader instead. Will have to check if this works.
-    for _ge, data in enumerate(train_dataloader, 0):
+        # RSD: Notice that iterations generator and discriminator are not utilised in this version. Complete the dataloader instead. Will have to check if this works.
+        # for _ge, data in enumerate(train_dataloader, 0):
         # Train Generator
         # Generate fake images
         # Calculate loss
@@ -204,7 +180,7 @@ for epoch in range(args.maxiter + 1):
 
         logging.debug(f"Gen Batch: {_ge}")
 
-        X, Y = data  # RSD: Check if correct unpacking.
+        X, Y = next(iter(train_dataloader))  # RSD: Check if correct unpacking.
         X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
             device
         )
@@ -216,52 +192,81 @@ for epoch in range(args.maxiter + 1):
         loss_mse = utils.mean_squared_error(X, Y)
 
         logging.debug("Shape consistency: %s" % str(X.shape == Y.shape))
-        logging.debug("Loss MSE: %f" % loss_mse)
+        logging.info("Loss MSE: %f" % loss_mse)
 
-        with torch.no_grad():
-            loss_adv = utils.adversarial_loss(discriminator(X))
-        logging.debug("Loss adv: %f" % loss_adv)
+        # with torch.no_grad():
+        #     loss_adv = utils.adversarial_loss(discriminator(X))
+        loss_adv = utils.adversarial_loss(discriminator(X))
+        logging.info("Loss adv: %f" % loss_adv)
+        logging.info(f"Adv req grad: {loss_adv.requires_grad}")
 
         mem = torch.cuda.mem_get_info()
         logging.debug("Before perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
         perc_loss = 0
 
+        # perc_loss += utils.vgg_slice_loop(
+        #     feature_extractor,
+        #     indexer=utils.vgg_indexer_x,
+        #     preprocess=preprocess,
+        #     X=X,
+        #     Y=Y,
+        #     slices=X.shape[2],
+        # )
+        # perc_loss += utils.vgg_slice_loop(
+        #     feature_extractor,
+        #     indexer=utils.vgg_indexer_y,
+        #     preprocess=preprocess,
+        #     X=X,
+        #     Y=Y,
+        #     slices=X.shape[3],
+        # )
+        # perc_loss += utils.vgg_slice_loop(
+        #     feature_extractor,
+        #     indexer=utils.vgg_indexer_z,
+        #     preprocess=preprocess,
+        #     X=X,
+        #     Y=Y,
+        #     slices=X.shape[4],
+        # )
+
         # RSD: To ensure that no computational graph is created.
         # with torch.no_grad():
-        with torch.no_grad():
-            for i in range(Y.shape[2]):
-                # RSD: Check if squeeze fucks up with minibatch size 1...? Or it works, but will size 2 be accepted? 2 not accepted.
-                # Possibly perform this for one slice at a time since loop already. Save memory.
+        # with torch.no_grad():
+        # if True:
+        # for i in range(Y.shape[2]):
+        #     # RSD: Check if squeeze fucks up with minibatch size 1...? Or it works, but will size 2 be accepted? 2 not accepted.
+        #     # Possibly perform this for one slice at a time since loop already. Save memory.
 
-                Y_vgg = torch.squeeze(
-                    torch.stack(
-                        [Y[:, :, i, :, :], Y[:, :, i, :, :], Y[:, :, i, :, :]],
-                        dim=1,
-                    )
-                )
-                Y_vgg = torch.squeeze(Y_vgg)
-                Y_vgg = preprocess(Y_vgg)
+        #     Y_vgg = torch.squeeze(
+        #         torch.stack(
+        #             [Y[:, :, i, :, :], Y[:, :, i, :, :], Y[:, :, i, :, :]],
+        #             dim=1,
+        #         )
+        #     )
+        #     Y_vgg = torch.squeeze(Y_vgg)
+        #     Y_vgg = preprocess(Y_vgg)
 
-                X_vgg = torch.squeeze(
-                    torch.stack(
-                        [
-                            X[:, :, i, :, :],
-                            X[:, :, i, :, :],
-                            X[:, :, i, :, :],
-                        ],
-                        dim=1,
-                    )
-                )
-                X_vgg = preprocess(X_vgg)
-                # perc_loss += utils.feature_extraction_iteration_loss(
-                #     feature_extractor, X_vgg, Y_vgg, i
-                # )
-                perc_loss += utils.slice_feature_extraction_loss(
-                    feature_extractor, X_vgg, Y_vgg
-                )
+        #     X_vgg = torch.squeeze(
+        #         torch.stack(
+        #             [
+        #                 X[:, :, i, :, :],
+        #                 X[:, :, i, :, :],
+        #                 X[:, :, i, :, :],
+        #             ],
+        #             dim=1,
+        #         )
+        #     )
+        #     X_vgg = preprocess(X_vgg)
+        #     # perc_loss += utils.feature_extraction_iteration_loss(
+        #     #     feature_extractor, X_vgg, Y_vgg, i
+        #     # )
+        #     perc_loss += utils.slice_feature_extraction_loss(
+        #         feature_extractor, X_vgg, Y_vgg
+        #     )
 
-        logging.debug("Perc loss: %f" % perc_loss)
+        logging.info("Perc loss: %f" % perc_loss)
+        # logging.debug(f"Perc req grad: {perc_loss.requires_grad}")
         mem = torch.cuda.mem_get_info()
         logging.debug("After perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
@@ -277,7 +282,7 @@ for epoch in range(args.maxiter + 1):
         generator_loss.backward()
         gen_optim.step()
 
-    del X_vgg, Y_vgg
+    # del X_vgg, Y_vgg
 
     itr_prints_gen = (
         "[Info] Epoch: %05d, %.2fs/it, gloss: %.2f (mse%.3f, adv%.3f, perc:%.3f)"
@@ -287,7 +292,7 @@ for epoch in range(args.maxiter + 1):
             generator_loss.cpu().detach().numpy(),
             loss_mse.cpu().detach().numpy().mean() * args.lmse,
             loss_adv.cpu().detach().numpy().mean() * args.ladv,
-            perc_loss.cpu().detach().numpy().mean() * args.lperc,
+            0,  # perc_loss.cpu().detach().numpy().mean() * args.lperc,
         )
     )
     time_dit_st = time.time()
@@ -304,35 +309,42 @@ for epoch in range(args.maxiter + 1):
         "Before discriminator: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024)
     )
 
-    for _de, data in enumerate(train_dataloader, 0):
-        X, Y = data
+    # for _de, data in enumerate(train_dataloader, 0):
+    for _de in range(args.itd):
+        # X, Y = data
+        X, Y = next(iter(train_dataloader))
         X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
             device
         )
 
         disc_optim.zero_grad()
-        with torch.no_grad():
-            X = generator(X)
+        # with torch.no_grad():
+        X = generator(X)
 
-        # discriminator_real = discriminator(Y)
-        # discriminator_fake = discriminator(X)
+        # logging.info(f"Req_grad {X.requires_grad} {Y.requires_grad}")
+
+        discriminator_real = discriminator(Y)
+        discriminator_fake = discriminator(X)
         # RSD: Does this work? Same loss every time.
         discriminator_loss = utils.discriminator_loss(
-            discriminator(Y), discriminator(X)
+            discriminator_real, discriminator_fake
         )
         logging.debug("Discriminator loss: %f" % discriminator_loss)
+
+        # logging.info(f"Req grad {discriminator_loss.requires_grad}")
 
         discriminator_loss.backward()
         disc_optim.step()
 
     disc_optim.zero_grad()
+
     print(
         "%s; dloss: %.2f (r%.3f, f%.3f), disc_elapse: %.2fs/itr, gan_elapse: %.2fs/itr"
         % (
             itr_prints_gen,
             discriminator_loss.cpu().detach().numpy().mean(),
-            0,  # discriminator_real.cpu().detach().numpy().mean(),
-            0,  # discriminator_fake.cpu().detach().numpy().mean(),
+            discriminator_real.cpu().detach().numpy().mean(),
+            discriminator_fake.cpu().detach().numpy().mean(),
             (time.time() - time_dit_st) / args.itd,
             time.time() - time_git_st,
         )
@@ -369,33 +381,30 @@ for epoch in range(args.maxiter + 1):
 
             perc_loss = 0
 
-            for i in range(Y.shape[2]):
-                Y_vgg = preprocess(
-                    torch.squeeze(
-                        torch.stack(
-                            [Y[:, :, i, :, :], Y[:, :, i, :, :], Y[:, :, i, :, :]],
-                            dim=1,
-                        )
-                    )
-                )
-                X_vgg = preprocess(
-                    torch.squeeze(
-                        torch.stack(
-                            [
-                                X[:, :, i, :, :],
-                                X[:, :, i, :, :],
-                                X[:, :, i, :, :],
-                            ],
-                            dim=1,
-                        )
-                    )
-                )
-
-                perc_loss += utils.slice_feature_extraction_loss(
-                    feature_extractor, X_vgg, Y_vgg
-                )
-
-            del X_vgg, Y_vgg
+            # perc_loss += utils.vgg_slice_loop(
+            #     feature_extractor,
+            #     indexer=utils.vgg_indexer_x,
+            #     preprocess=preprocess,
+            #     X=X,
+            #     Y=Y,
+            #     slices=X.shape[2],
+            # )
+            # perc_loss += utils.vgg_slice_loop(
+            #     feature_extractor,
+            #     indexer=utils.vgg_indexer_y,
+            #     preprocess=preprocess,
+            #     X=X,
+            #     Y=Y,
+            #     slices=X.shape[3],
+            # )
+            # perc_loss += utils.vgg_slice_loop(
+            #     feature_extractor,
+            #     indexer=utils.vgg_indexer_z,
+            #     preprocess=preprocess,
+            #     X=X,
+            #     Y=Y,
+            #     slices=X.shape[4],
+            # )
 
             generator_loss = (
                 args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
@@ -411,7 +420,8 @@ for epoch in range(args.maxiter + 1):
         if epoch % args.saveiter == 0:
 
             Xs = np.squeeze(X[0].cpu().detach().numpy())
-            logging.debug("Xs max: %s" % str(Xs.max()))
+            logging.info("Xs max: %s" % str(Xs.max()))
+            logging.info("Xs min: %s" % str(Xs.min()))
 
             # output = generator(Xs)
             # output = output.cpu().detach().numpy()
