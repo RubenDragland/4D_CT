@@ -70,7 +70,7 @@ def generator_loop(
 
         perc_loss = 0
 
-        perc_loss += utils.perceptual_loss(
+        perc_loss += utils.perc_slice_loop(
             feature_extractor,
             utils.perc_indexer_x,
             feature_preprocess,
@@ -78,7 +78,7 @@ def generator_loop(
             Y,
             X.shape[2],
         )
-        perc_loss += utils.perceptual_loss(
+        perc_loss += utils.perc_slice_loop(
             feature_extractor,
             utils.perc_indexer_y,
             feature_preprocess,
@@ -86,7 +86,7 @@ def generator_loop(
             Y,
             X.shape[3],
         )
-        perc_loss += utils.perceptual_loss(
+        perc_loss += utils.perc_slice_loop(
             feature_extractor,
             utils.perc_indexer_z,
             feature_preprocess,
@@ -154,24 +154,26 @@ def discriminator_loop(
         discriminator_loss = utils.discriminator_loss(
             discriminator_real, discriminator_fake, criterion_bce
         )
-        logging.info("Discriminator loss: %f" % discriminator_loss)
 
         discriminator_loss.backward()
         disc_optim.step()
 
+    logging.info("Discriminator loss: %f" % discriminator_loss)
     disc_optim.zero_grad()
 
-    print(
-        "%s; dloss: %.2f (r%.3f, f%.3f), disc_elapse: %.2fs/itr, gan_elapse: %.2fs/itr"
-        % (
-            itr_prints_gen,
-            discriminator_loss.cpu().detach().numpy().mean(),
-            discriminator_real.cpu().detach().numpy().mean(),
-            discriminator_fake.cpu().detach().numpy().mean(),
-            (time.time() - time_begin_disc) / args.itd,
-            time.time() - time_begin_gen,
+    if rank == 0:
+
+        print(
+            "%s; dloss: %.2f (r%.3f, f%.3f), disc_elapse: %.2fs/itr, gan_elapse: %.2fs/itr"
+            % (
+                itr_prints_gen,
+                discriminator_loss.cpu().detach().numpy().mean(),
+                discriminator_real.cpu().detach().numpy().mean(),
+                discriminator_fake.cpu().detach().numpy().mean(),
+                (time.time() - time_begin_disc) / args.itd,
+                time.time() - time_begin_gen,
+            )
         )
-    )
 
     return
 
@@ -190,6 +192,7 @@ def validation_loop(
     epoch,
 ):
     """Validates the model."""
+    validation_loss = 0
 
     for v_ge, val_data in enumerate(val_dataloader, 0):
 
@@ -201,7 +204,7 @@ def validation_loop(
         X = generator(X)  # Generator works
 
         # Calculate loss
-        loss_mse = utils.mean_squared_error(X, Y, criterion_mse)
+        loss_mse = criterion_mse(X, Y)
         loss_adv = utils.adversarial_loss(discriminator(X), criterion_bce)
 
         # RSD: Now feature extractor loss
@@ -209,7 +212,7 @@ def validation_loop(
 
         perc_loss = 0
 
-        perc_loss += utils.perceptual_loss(
+        perc_loss += utils.perc_slice_loop(
             feature_extractor,
             utils.perc_indexer_x,
             feature_preprocess,
@@ -217,7 +220,7 @@ def validation_loop(
             Y,
             X.shape[2],
         )
-        perc_loss += utils.perceptual_loss(
+        perc_loss += utils.perc_slice_loop(
             feature_extractor,
             utils.perc_indexer_y,
             feature_preprocess,
@@ -225,7 +228,7 @@ def validation_loop(
             Y,
             X.shape[3],
         )
-        perc_loss += utils.perceptual_loss(
+        perc_loss += utils.perc_slice_loop(
             feature_extractor,
             utils.perc_indexer_z,
             feature_preprocess,
@@ -240,16 +243,17 @@ def validation_loop(
 
         validation_loss += generator_loss.cpu().detach().numpy().mean()
 
-    print(
-        "\n[Info] Epoch: %05d, Validation loss: %.2f \n"
-        % (epoch, validation_loss / len(val_dataloader))
-    )
+    if rank == 0:
+        print(
+            "\n[Info] Epoch: %05d, Validation loss: %.2f \n"
+            % (epoch, validation_loss / len(val_dataloader))
+        )
     return X
 
 
-def save_checkpoint(X, args, epoch, itr_out_dir, generator, val_dataloader):
+def save_checkpoint(X, args, epoch, itr_out_dir, generator, val_dataloader, rank):
     """Saves the model and some images."""
-    if epoch % args.saveiter == 0 and generator.gpu_id == 0:
+    if epoch % args.saveiter == 0 and rank == 0:
 
         Xs = np.squeeze(X[0].cpu().detach().numpy())
         logging.info("Xs max: %s" % str(Xs.max()))
@@ -273,7 +277,7 @@ def save_checkpoint(X, args, epoch, itr_out_dir, generator, val_dataloader):
         del Xs
 
     # Save model
-    if epoch == 0 and generator.gpu_id == 0:
+    if epoch == 0 and rank == 0:
 
         X, Y = next(iter(val_dataloader))
         Y = np.squeeze(Y[0].cpu().detach().numpy())

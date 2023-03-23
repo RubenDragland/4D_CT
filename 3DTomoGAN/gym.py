@@ -1,11 +1,12 @@
 import torch
 from torch import nn as nn
 import sys, os, argparse, shutil
-from models import Discriminator3DTomoGAN, Generator3DTomoGAN
+from models import Discriminator3DTomoGAN, Generator3DTomoGAN, TransferredResnet
 from data import *
 import torchvision.models as models
 import utils
 from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
 
 # from ignite.metrics import SSIM, PSNR
 import numpy as np
@@ -92,7 +93,7 @@ logging.info("Device: %s" % device)
 
 if args.hparams_file == "0":
     hparams = None  # {}  # RSD: Fix this
-    data_hparams = {"train_split": 0.875, "val_split": 0.125, "test_split": 0.0}
+    data_hparams = {"train_split": 0.75, "val_split": 0.25, "test_split": 0.0}
 else:
     hparams = torch.load(args.hparams_file)
     # RSD: Need some fixing.
@@ -106,9 +107,9 @@ full_dataset = Dataset3D(args.dsfn, args.dsfolder)
 
 # RSD: Split data into train, val, test
 train_size = int(data_hparams["train_split"] * len(full_dataset))
-train_size = 6
+# train_size = 6
 val_size = int(data_hparams["val_split"] * len(full_dataset))
-val_size = 1
+# val_size = 1
 test_size = len(full_dataset) - train_size - val_size
 train_set, val_set, test_set = torch.utils.data.random_split(
     full_dataset, [train_size, val_size, test_size]
@@ -133,10 +134,16 @@ logging.debug("After loading: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 generator = Generator3DTomoGAN().to(device)
 discriminator = Discriminator3DTomoGAN().to(device)
 
-pretrained_weights = models.VGG19_BN_Weights.IMAGENET1K_V1
+pretrained_weights = (
+    models.ResNet50_Weights.IMAGENET1K_V1
+)  # models.VGG19_BN_Weights.IMAGENET1K_V1
 preprocess = pretrained_weights.transforms()  # RSD: Check this. (transforms?)
 
-feature_extractor = models.vgg19_bn(weights=pretrained_weights).features
+# feature_extractor = models.resnet152(
+#     weights=pretrained_weights
+# )#.features  # models.vgg19_bn(weights=pretrained_weights).features
+feature_extractor = TransferredResnet(pretrained_weights)
+print(feature_extractor)
 feature_extractor.to(device)
 feature_extractor.eval()
 feature_extractor.requires_grad_(False)
@@ -145,210 +152,224 @@ feature_extractor.requires_grad_(False)
 logging.debug(f"Feature extractor: {feature_extractor}")
 
 mem = torch.cuda.mem_get_info()
-logging.debug("Loaded vgg: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
+logging.debug("Loaded perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
 # Define optimizers
 
 gen_optim = torch.optim.Adam(generator.parameters(), lr=args.lrateg)
 disc_optim = torch.optim.Adam(discriminator.parameters(), lr=args.lrated)
 
+train_loss = []
+val_loss = []
+
 
 for epoch in range(args.maxiter + 1):
 
     logging.debug("Epoch: %d" % epoch)
-
-    time_git_st = time.time()
     mem = torch.cuda.mem_get_info()
     logging.info("Begin epoch: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
-    gen_optim.zero_grad()
-    discriminator.eval()
-    discriminator.requires_grad_(False)
-    generator.train()
-    generator.requires_grad_(True)
+    training_iter = 0
 
-    for _ge in range(args.itg):
+    assert (
+        len(train_dataloader) >= args.itg + args.itd
+    ), "Not enough data to perform desired epoch."
 
-        # RSD: Notice that iterations generator and discriminator are not utilised in this version. Complete the dataloader instead. Will have to check if this works.
-        # for _ge, data in enumerate(train_dataloader, 0):
-        # Train Generator
-        # Generate fake images
-        # Calculate loss
-        # Backpropagate
-        # Clip weights
-        # Update weights
+    while training_iter + args.itg + args.itd <= len(train_dataloader):
 
-        logging.debug(f"Gen Batch: {_ge}")
+        time_git_st = time.time()
 
-        X, Y = next(iter(train_dataloader))  # RSD: Check if correct unpacking.
-        X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
-            device
-        )
-
-        # Train Generator
         gen_optim.zero_grad()
-        X = generator(X)  # Generator works
-        # Calculate loss
-        loss_mse = utils.mean_squared_error(X, Y)
+        discriminator.eval()
+        discriminator.requires_grad_(False)
+        generator.train()
+        generator.requires_grad_(True)
 
-        logging.debug("Shape consistency: %s" % str(X.shape == Y.shape))
-        logging.info("Loss MSE: %f" % loss_mse)
+        for _ge in range(args.itg):
 
-        # with torch.no_grad():
-        #     loss_adv = utils.adversarial_loss(discriminator(X))
-        loss_adv = utils.adversarial_loss(discriminator(X))
-        logging.info("Loss adv: %f" % loss_adv)
-        logging.info(f"Adv req grad: {loss_adv.requires_grad}")
+            # RSD: Notice that iterations generator and discriminator are not utilised in this version. Complete the dataloader instead. Will have to check if this works.
+            # for _ge, data in enumerate(train_dataloader, 0):
+            # Train Generator
+            # Generate fake images
+            # Calculate loss
+            # Backpropagate
+            # Clip weights
+            # Update weights
+
+            training_iter += 1
+
+            X, Y = next(iter(train_dataloader))  # RSD: Check if correct unpacking.
+            X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
+                device
+            )
+
+            # Train Generator
+            gen_optim.zero_grad()
+            X = generator(X)  # Generator works
+            # Calculate loss
+            loss_mse = utils.mean_squared_error(X, Y)
+
+            # logging.debug("Shape consistency: %s" % str(X.shape == Y.shape))
+            # logging.info("Loss MSE: %f" % loss_mse)
+
+            # with torch.no_grad():
+            #     loss_adv = utils.adversarial_loss(discriminator(X))
+            loss_adv = utils.adversarial_loss(discriminator(X))
+            # logging.info("Loss adv: %f" % loss_adv)
+
+            # mem = torch.cuda.mem_get_info()
+            # logging.debug("Before perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
+
+            perc_loss = 0
+
+            perc_loss += utils.perc_slice_loop(
+                feature_extractor,
+                indexer=utils.perc_indexer_x,
+                preprocess=preprocess,
+                X=X,
+                Y=Y,
+                slices=X.shape[2],
+            )
+            perc_loss += utils.perc_slice_loop(
+                feature_extractor,
+                indexer=utils.perc_indexer_y,
+                preprocess=preprocess,
+                X=X,
+                Y=Y,
+                slices=X.shape[3],
+            )
+            perc_loss += utils.perc_slice_loop(
+                feature_extractor,
+                indexer=utils.perc_indexer_z,
+                preprocess=preprocess,
+                X=X,
+                Y=Y,
+                slices=X.shape[4],
+            )
+
+            # RSD: To ensure that no computational graph is created.
+            # with torch.no_grad():
+            # with torch.no_grad():
+            # if True:
+            # for i in range(Y.shape[2]):
+            #     # RSD: Check if squeeze fucks up with minibatch size 1...? Or it works, but will size 2 be accepted? 2 not accepted.
+            #     # Possibly perform this for one slice at a time since loop already. Save memory.
+
+            #     Y_vgg = torch.squeeze(
+            #         torch.stack(
+            #             [Y[:, :, i, :, :], Y[:, :, i, :, :], Y[:, :, i, :, :]],
+            #             dim=1,
+            #         )
+            #     )
+            #     Y_vgg = torch.squeeze(Y_vgg)
+            #     Y_vgg = preprocess(Y_vgg)
+
+            #     X_vgg = torch.squeeze(
+            #         torch.stack(
+            #             [
+            #                 X[:, :, i, :, :],
+            #                 X[:, :, i, :, :],
+            #                 X[:, :, i, :, :],
+            #             ],
+            #             dim=1,
+            #         )
+            #     )
+            #     X_vgg = preprocess(X_vgg)
+            #     # perc_loss += utils.feature_extraction_iteration_loss(
+            #     #     feature_extractor, X_vgg, Y_vgg, i
+            #     # )
+            #     perc_loss += utils.slice_feature_extraction_loss(
+            #         feature_extractor, X_vgg, Y_vgg
+            #     )
+            # mem = torch.cuda.mem_get_info()
+            # logging.debug("After perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
+
+            generator_loss = (
+                args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
+            )
+            logging.debug("Generator loss: %f" % generator_loss)
+            logging.info(
+                f"Generator loss: {generator_loss.cpu().detach().numpy()} MSE: {loss_mse.cpu().detach.numpy()} Adv: {loss_adv.cpu().detach().numpy()} Perc: {perc_loss.cpu().detach().numpy()}"
+            )
+
+            generator_loss.backward()
+            gen_optim.step()
+
+        # del X_vgg, Y_vgg
+
+        itr_prints_gen = (
+            "[Info] Epoch: %05d, %.2fs/it, gloss: %.2f (mse%.3f, adv%.3f, perc:%.3f)"
+            % (
+                epoch,
+                (time.time() - time_git_st) / args.itg,
+                generator_loss.cpu().detach().numpy(),
+                loss_mse.cpu().detach().numpy().mean() * args.lmse,
+                loss_adv.cpu().detach().numpy().mean() * args.ladv,
+                perc_loss.cpu().detach().numpy().mean() * args.lperc,
+            )
+        )
+
+        train_loss.append(generator_loss.cpu().detach().numpy())
+        time_dit_st = time.time()
+
+        # Train Discriminator
+        discriminator.train()
+        discriminator.requires_grad_(True)
+        gen_optim.zero_grad()
+        generator.eval()
+        generator.requires_grad_(False)
 
         mem = torch.cuda.mem_get_info()
-        logging.debug("Before perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
-
-        perc_loss = 0
-
-        # perc_loss += utils.vgg_slice_loop(
-        #     feature_extractor,
-        #     indexer=utils.vgg_indexer_x,
-        #     preprocess=preprocess,
-        #     X=X,
-        #     Y=Y,
-        #     slices=X.shape[2],
-        # )
-        # perc_loss += utils.vgg_slice_loop(
-        #     feature_extractor,
-        #     indexer=utils.vgg_indexer_y,
-        #     preprocess=preprocess,
-        #     X=X,
-        #     Y=Y,
-        #     slices=X.shape[3],
-        # )
-        # perc_loss += utils.vgg_slice_loop(
-        #     feature_extractor,
-        #     indexer=utils.vgg_indexer_z,
-        #     preprocess=preprocess,
-        #     X=X,
-        #     Y=Y,
-        #     slices=X.shape[4],
-        # )
-
-        # RSD: To ensure that no computational graph is created.
-        # with torch.no_grad():
-        # with torch.no_grad():
-        # if True:
-        # for i in range(Y.shape[2]):
-        #     # RSD: Check if squeeze fucks up with minibatch size 1...? Or it works, but will size 2 be accepted? 2 not accepted.
-        #     # Possibly perform this for one slice at a time since loop already. Save memory.
-
-        #     Y_vgg = torch.squeeze(
-        #         torch.stack(
-        #             [Y[:, :, i, :, :], Y[:, :, i, :, :], Y[:, :, i, :, :]],
-        #             dim=1,
-        #         )
-        #     )
-        #     Y_vgg = torch.squeeze(Y_vgg)
-        #     Y_vgg = preprocess(Y_vgg)
-
-        #     X_vgg = torch.squeeze(
-        #         torch.stack(
-        #             [
-        #                 X[:, :, i, :, :],
-        #                 X[:, :, i, :, :],
-        #                 X[:, :, i, :, :],
-        #             ],
-        #             dim=1,
-        #         )
-        #     )
-        #     X_vgg = preprocess(X_vgg)
-        #     # perc_loss += utils.feature_extraction_iteration_loss(
-        #     #     feature_extractor, X_vgg, Y_vgg, i
-        #     # )
-        #     perc_loss += utils.slice_feature_extraction_loss(
-        #         feature_extractor, X_vgg, Y_vgg
-        #     )
-
-        logging.info("Perc loss: %f" % perc_loss)
-        # logging.debug(f"Perc req grad: {perc_loss.requires_grad}")
-        mem = torch.cuda.mem_get_info()
-        logging.debug("After perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
-
-        # RSD: Loop over cubic dimensions. Also, preprocessing is only done for every crossection.
-
-        # loss_logcosh = utils.logcosh_loss(X, Y) #?
-
-        generator_loss = (
-            args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
+        logging.debug(
+            "Before discriminator: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024)
         )
-        logging.debug("Generator loss: %f" % generator_loss)
 
-        generator_loss.backward()
-        gen_optim.step()
+        # for _de, data in enumerate(train_dataloader, 0):
+        for _de in range(args.itd):
 
-    # del X_vgg, Y_vgg
+            training_iter += 1
+            # X, Y = data
+            X, Y = next(iter(train_dataloader))
+            X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
+                device
+            )
 
-    itr_prints_gen = (
-        "[Info] Epoch: %05d, %.2fs/it, gloss: %.2f (mse%.3f, adv%.3f, perc:%.3f)"
-        % (
-            epoch,
-            (time.time() - time_git_st) / args.itg,
-            generator_loss.cpu().detach().numpy(),
-            loss_mse.cpu().detach().numpy().mean() * args.lmse,
-            loss_adv.cpu().detach().numpy().mean() * args.ladv,
-            0,  # perc_loss.cpu().detach().numpy().mean() * args.lperc,
-        )
-    )
-    time_dit_st = time.time()
+            disc_optim.zero_grad()
+            # with torch.no_grad():
+            X = generator(X)
 
-    # Train Discriminator
-    discriminator.train()
-    discriminator.requires_grad_(True)
-    gen_optim.zero_grad()
-    generator.eval()
-    generator.requires_grad_(False)
+            # logging.info(f"Req_grad {X.requires_grad} {Y.requires_grad}")
 
-    mem = torch.cuda.mem_get_info()
-    logging.debug(
-        "Before discriminator: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024)
-    )
+            discriminator_real = discriminator(Y)
+            discriminator_fake = discriminator(X)
+            # RSD: Does this work? Same loss every time.
+            discriminator_loss = utils.discriminator_loss(
+                discriminator_real, discriminator_fake
+            )
+            logging.info("Discriminator loss: %f" % discriminator_loss)
 
-    # for _de, data in enumerate(train_dataloader, 0):
-    for _de in range(args.itd):
-        # X, Y = data
-        X, Y = next(iter(train_dataloader))
-        X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
-            device
-        )
+            # logging.info(f"Req grad {discriminator_loss.requires_grad}")
+
+            discriminator_loss.backward()
+
+            logging.info(
+                f"Discriminator grad:{ [discriminator.layers[i].weight.grad.max().cpu().detach().numpy() for i in range(0, 7, 2)]}"
+            )
+            disc_optim.step()
 
         disc_optim.zero_grad()
-        # with torch.no_grad():
-        X = generator(X)
 
-        # logging.info(f"Req_grad {X.requires_grad} {Y.requires_grad}")
-
-        discriminator_real = discriminator(Y)
-        discriminator_fake = discriminator(X)
-        # RSD: Does this work? Same loss every time.
-        discriminator_loss = utils.discriminator_loss(
-            discriminator_real, discriminator_fake
+        print(
+            "%s; dloss: %.2f (r%.3f, f%.3f), disc_elapse: %.2fs/itr, gan_elapse: %.2fs/itr"
+            % (
+                itr_prints_gen,
+                discriminator_loss.cpu().detach().numpy().mean(),
+                discriminator_real.cpu().detach().numpy().mean(),
+                discriminator_fake.cpu().detach().numpy().mean(),
+                (time.time() - time_dit_st) / args.itd,
+                time.time() - time_git_st,
+            )
         )
-        logging.debug("Discriminator loss: %f" % discriminator_loss)
-
-        # logging.info(f"Req grad {discriminator_loss.requires_grad}")
-
-        discriminator_loss.backward()
-        disc_optim.step()
-
-    disc_optim.zero_grad()
-
-    print(
-        "%s; dloss: %.2f (r%.3f, f%.3f), disc_elapse: %.2fs/itr, gan_elapse: %.2fs/itr"
-        % (
-            itr_prints_gen,
-            discriminator_loss.cpu().detach().numpy().mean(),
-            discriminator_real.cpu().detach().numpy().mean(),
-            discriminator_fake.cpu().detach().numpy().mean(),
-            (time.time() - time_dit_st) / args.itd,
-            time.time() - time_git_st,
-        )
-    )
     mem = torch.cuda.mem_get_info()
     logging.debug("Before validation: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
@@ -381,33 +402,43 @@ for epoch in range(args.maxiter + 1):
 
             perc_loss = 0
 
-            # perc_loss += utils.vgg_slice_loop(
-            #     feature_extractor,
-            #     indexer=utils.vgg_indexer_x,
-            #     preprocess=preprocess,
-            #     X=X,
-            #     Y=Y,
-            #     slices=X.shape[2],
-            # )
-            # perc_loss += utils.vgg_slice_loop(
-            #     feature_extractor,
-            #     indexer=utils.vgg_indexer_y,
-            #     preprocess=preprocess,
-            #     X=X,
-            #     Y=Y,
-            #     slices=X.shape[3],
-            # )
-            # perc_loss += utils.vgg_slice_loop(
-            #     feature_extractor,
-            #     indexer=utils.vgg_indexer_z,
-            #     preprocess=preprocess,
-            #     X=X,
-            #     Y=Y,
-            #     slices=X.shape[4],
-            # )
+            perc_loss += utils.perc_slice_loop(
+                feature_extractor,
+                indexer=utils.perc_indexer_x,
+                preprocess=preprocess,
+                X=X,
+                Y=Y,
+                slices=X.shape[2],
+            )
+            perc_loss += utils.perc_slice_loop(
+                feature_extractor,
+                indexer=utils.perc_indexer_y,
+                preprocess=preprocess,
+                X=X,
+                Y=Y,
+                slices=X.shape[3],
+            )
+            perc_loss += utils.perc_slice_loop(
+                feature_extractor,
+                indexer=utils.perc_indexer_z,
+                preprocess=preprocess,
+                X=X,
+                Y=Y,
+                slices=X.shape[4],
+            )
 
             generator_loss = (
                 args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
+            )
+
+            logging.info(
+                "Validation loss: %f, mse: %f, adv: %f, perc: %f"
+                % (
+                    generator_loss.cpu().detach().numpy().mean(),
+                    loss_mse.cpu().detach().numpy().mean(),
+                    loss_adv.cpu().detach().numpy().mean(),
+                    perc_loss.cpu().detach().numpy().mean(),
+                )
             )
 
             validation_loss += generator_loss.cpu().detach().numpy().mean()
@@ -416,6 +447,8 @@ for epoch in range(args.maxiter + 1):
         "\n[Info] Epoch: %05d, Validation loss: %.2f \n"
         % (epoch, validation_loss / len(val_dataloader))
     )  # RSD ++ Accuracy or PSNR or SSIM
+    val_loss.append(validation_loss / len(val_dataloader))
+
     with torch.no_grad():
         if epoch % args.saveiter == 0:
 
@@ -432,6 +465,11 @@ for epoch in range(args.maxiter + 1):
             utils.save2img(Xs[slice, :, :], "%s/it%05d_x.png" % (itr_out_dir, epoch))
             utils.save2img(Xs[:, slice, :], "%s/it%05d_y.png" % (itr_out_dir, epoch))
             utils.save2img(Xs[:, :, slice], "%s/it%05d_z.png" % (itr_out_dir, epoch))
+
+            plt.imshow(Xs[slice, :, :])
+            plt.colorbar()
+            plt.savefig("%s/it%05d_x_plot.png" % (itr_out_dir, epoch))
+            plt.close()
 
             torch.save(
                 generator.state_dict(), "%s/it%05d_gen.pth" % (itr_out_dir, epoch)
@@ -465,3 +503,11 @@ for epoch in range(args.maxiter + 1):
         # generator.eval()
 
     # p.step()  # Profiling
+
+    # Save loss curves
+
+    plt.plot(train_loss, label="train")
+    plt.plot(val_loss, label="validation")
+    plt.legend()
+    plt.savefig("%s/loss.png" % (itr_out_dir))
+    plt.close()

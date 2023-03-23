@@ -6,6 +6,7 @@ import numpy as np
 import os
 import sys
 import time
+import torchvision.models
 
 
 class Discriminator3DTomoGAN(nn.Module):
@@ -14,7 +15,7 @@ class Discriminator3DTomoGAN(nn.Module):
 
         if hparams is None:  # RSD: Not done yet.
             self.hparams = {
-                "relu_type": nn.ReLU,
+                "relu_type": nn.PReLU,
                 "input_shape": (32, 64, 64, 64),
                 "in_channels": 1,
                 "kernel_size": 3,
@@ -179,7 +180,7 @@ class Generator3DTomoGAN(nn.Module):
 
         if hparams is None:  # RSD: Not done yet.
             self.hparams = {
-                "relu_type": nn.ReLU,
+                "relu_type": nn.PReLU,
                 "input_shape": (32, 64, 64, 64),
                 "in_channels": 1,
                 "kernel_size": 3,
@@ -306,4 +307,24 @@ class Generator3DTomoGAN(nn.Module):
         x = torch.cat((x, skip_connections.pop()), dim=1)
         x = self.net_up3(x)
 
+        return x
+
+
+class TransferredResnet(nn.Module):
+    def __init__(self, weights):
+        super().__init__()
+        self.resnet = torchvision.models.resnet50(weights=weights)
+        self.feature_list = []
+
+        for n, c in self.resnet.named_children():
+            self.feature_list.append(c.requires_grad_(False))
+
+        self.net = nn.Sequential(
+            *self.feature_list[:-2]
+        )  # Ignore AVG Pool and FC layer
+
+        # self.resnet = None
+
+    def forward(self, x):
+        x = self.net(x)
         return x

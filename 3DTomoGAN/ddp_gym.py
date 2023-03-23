@@ -1,7 +1,7 @@
 import torch
 from torch import nn as nn
 import sys, os, argparse, shutil
-from models import Discriminator3DTomoGAN, Generator3DTomoGAN
+from models import Discriminator3DTomoGAN, Generator3DTomoGAN, TransferredResnet
 import torchvision.models as models
 from data import *
 import torchvision.models as models
@@ -17,7 +17,7 @@ import logging
 from parser_gym import parser_args_gym
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 def multiprocess_train_code(
@@ -31,7 +31,6 @@ def multiprocess_train_code(
     itr_out_dir,
 ):
     """DDP training code. Distributes data and models across gpus. Performs processes."""
-    pass
 
     torch.distributed.init_process_group(
         backend="nccl",
@@ -60,19 +59,28 @@ def multiprocess_train_code(
         sampler=val_sampler,
     )
 
+    logging.debug("Rank: " + str(rank) + " - Data loaded.")
+
     # Inits models across the gpus
 
-    generator = Generator3DTomoGAN()
-    discriminator = Discriminator3DTomoGAN()
+    generator = Generator3DTomoGAN().cuda()
+    discriminator = Discriminator3DTomoGAN().cuda()
 
     generator = ddp_utils.init_model(generator, rank)
     discriminator = ddp_utils.init_model(discriminator, rank)
 
-    pretrained_weights = models.VGG19_BN_Weights.IMAGENET1K_V1  # RSD: Change this
+    pretrained_weights = (
+        models.ResNet50_Weights.IMAGENET1K_V1
+    )  # models.VGG19_BN_Weights.IMAGENET1K_V1  # RSD: Change this
     preprocess = pretrained_weights.transforms()  # RSD: Check this. (transforms?)
 
-    feature_extractor = models.vgg19_bn(weights=pretrained_weights).features
-    feature_extractor = ddp_utils.init_model(feature_extractor, rank)
+    feature_extractor = TransferredResnet(
+        pretrained_weights
+    ).cuda()  # models.vgg19_bn(weights=pretrained_weights).features
+    # feature_extractor = ddp_utils.init_model(feature_extractor, rank)
+    # feature_extractor = nn.SyncBatchNorm.convert_sync_batchnorm(
+    #     feature_extractor
+    # )  # RSD: Believe this is necessary
 
     # Inits the optimizers
     gen_optim = torch.optim.Adam(generator.parameters(), lr=args.lrateg)
@@ -84,62 +92,28 @@ def multiprocess_train_code(
     mean_squared_error = nn.MSELoss()
     mean_squared_error.cuda(rank)
 
+    assert args.itg + args.itd > len(
+        train_dataloader
+    ), "Must be enough data for each epoch"
+
     for epoch in range(args.maxiter + 1):
         train_sampler.set_epoch(epoch)
         val_sampler.set_epoch(epoch)
 
-        gen_optim.zero_grad()
-        discriminator.eval()
-        discriminator.requires_grad_(False)
-        generator.train()
-        generator.requires_grad_(True)
+        training_iter = 0
 
-        time_git_st = time.time()
+        while training_iter + args.itg + args.itd < len(train_dataloader):
 
-        itr_prints_gen = ddp_utils.generator_loop(
-            train_dataloader,
-            gen_optim,
-            generator,
-            discriminator,
-            feature_extractor,
-            preprocess,
-            mean_squared_error,
-            binary_cross_entropy,
-            rank,
-            args,
-            epoch,
-            time_begin=time_git_st,
-        )
+            gen_optim.zero_grad()
+            discriminator.eval()
+            discriminator.requires_grad_(False)
+            generator.train()
+            generator.requires_grad_(True)
 
-        time_dit_st = time.time()
+            time_git_st = time.time()
 
-        # Train Discriminator
-        discriminator.train()
-        discriminator.requires_grad_(True)
-        gen_optim.zero_grad()
-        generator.eval()
-        generator.requires_grad_(False)
-
-        ddp_utils.discriminator_loop(
-            train_dataloader,
-            disc_optim,
-            generator,
-            discriminator,
-            binary_cross_entropy,
-            rank,
-            args,
-            epoch,
-            time_begin_disc=time_dit_st,
-            time_begin_gen=time_git_st,
-            itr_prints_gen=itr_prints_gen,
-        )
-
-        generator.eval()
-        generator.requires_grad_(False)
-
-        with torch.no_grad():
-            X = ddp_utils.validation_loop(
-                val_dataloader,
+            itr_prints_gen = ddp_utils.generator_loop(
+                train_dataloader,
                 gen_optim,
                 generator,
                 discriminator,
@@ -150,11 +124,53 @@ def multiprocess_train_code(
                 rank,
                 args,
                 epoch,
+                time_begin=time_git_st,
             )
 
-            ddp_utils.save_checkpoint(
-                X, args, epoch, itr_out_dir, generator, val_dataloader
+            time_dit_st = time.time()
+
+            # Train Discriminator
+            discriminator.train()
+            discriminator.requires_grad_(True)
+            gen_optim.zero_grad()
+            generator.eval()
+            generator.requires_grad_(False)
+
+            ddp_utils.discriminator_loop(
+                train_dataloader,
+                disc_optim,
+                generator,
+                discriminator,
+                binary_cross_entropy,
+                rank,
+                args,
+                epoch,
+                time_begin_disc=time_dit_st,
+                time_begin_gen=time_git_st,
+                itr_prints_gen=itr_prints_gen,
             )
+
+            generator.eval()
+            generator.requires_grad_(False)
+
+            with torch.no_grad():
+                X = ddp_utils.validation_loop(
+                    val_dataloader,
+                    gen_optim,
+                    generator,
+                    discriminator,
+                    feature_extractor,
+                    preprocess,
+                    mean_squared_error,
+                    binary_cross_entropy,
+                    rank,
+                    args,
+                    epoch,
+                )
+
+                ddp_utils.save_checkpoint(
+                    X, args, epoch, itr_out_dir, generator, val_dataloader, rank
+                )
 
     return
 
@@ -192,6 +208,8 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     num_gpus = torch.cuda.device_count()  # RSD Or use parser arg
 
+    logging.debug("Number of GPUs: " + str(num_gpus), "Device: " + str(device))
+
     # RSD: Load hparams file
 
     if args.hparams_file == "0":
@@ -217,12 +235,14 @@ if __name__ == "__main__":
         full_dataset, [train_size, val_size, test_size]
     )
 
+    # Perhaps init models here...?
+
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "29500"
 
     torch.multiprocessing.spawn(
         multiprocess_train_code,
-        args=(args, num_gpus, train_set, val_set, hparams, data_hparams),
+        args=(num_gpus, train_set, val_set, hparams, data_hparams, args, itr_out_dir),
         nprocs=num_gpus,
         join=True,
     )  # RSD: Unsure about join

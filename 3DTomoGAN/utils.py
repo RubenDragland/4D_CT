@@ -93,8 +93,8 @@ def save2img(d_img, fn):
     if np.abs(_max - _min) < 1e-4:
         img = np.zeros(d_img.shape)
     else:
-        # img = (d_img - _min) * 255.0 / (_max - _min)
-        img = d_img * 255.0
+        img = (d_img - _min) * 255.0 / (_max - _min)
+        # img = d_img * 255.0
 
     img = img.astype("uint8")
     imageio.imwrite(fn, img)
