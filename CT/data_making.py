@@ -256,7 +256,7 @@ class EqNRDataCT(ReconstructionsDataCT):
 
         return
 
-    def reconstruct_target(self, o, f, idx, depth=256):
+    def reconstruct_target(self, o, f, idx, not_use_depth=256):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
@@ -310,6 +310,20 @@ class EqNRDataCT(ReconstructionsDataCT):
         )
         # sino = sino.transpose(2, 0, 1) #RSD: Consider, unsure on format for reconstruction
         return data
+
+
+class EquinorReconstructions(ReconstructionsDataCT):
+    def __init__(self, root, name, o_root, o_name):
+        super().__init__(o_root, o_name)
+        self.root = root
+        self.name = name
+
+        return
+
+    def reconstruct_target(self, o, f, idx):
+        pass
+
+    #  Make this class fully automated, and ensure that the other classes follow the same principle.
 
 
 def get_dataset_keys(f):
