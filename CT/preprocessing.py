@@ -10,6 +10,7 @@ import h5py
 import pickle as pkl
 import os
 import re
+import tqdm
 
 """
 Here, we will handle tif files obtained at EQNR.
@@ -34,10 +35,10 @@ class IndustrialGeometryEQNR:
                 "rotation": 0,
             }
         else:
-            try:
-                self.read_from_file(kwargs["path"])
-            except:
-                raise ValueError("Please provide a path to the file.")
+            # try:
+            self.read_from_file(kwargs["path"])
+            # except:
+            # raise ValueError("Please provide a path to the file.")
 
         golden_geometry = tigre.geometry(mode="cone", default=True)
 
@@ -72,7 +73,9 @@ class IndustrialGeometryEQNR:
         golden_geometry.rotDetector = np.array([0, 0, 0])  # Rotation of detector
         # golden_geometry.rotDetector = np.array([self.values["rotation"], 0, 0])  # Rotation of detector
 
-        return (golden_geometry, self.values)
+        self.golden_geometry = golden_geometry
+        self.values = self.values
+        return  # (golden_geometry, self.values)
 
     def read_dict_from_file(self, path):
 
@@ -103,6 +106,7 @@ class IndustrialGeometryEQNR:
         rotation = re.findall(r"\d+", rotation_raw)
         assert len(rotation) == 1
         rotation = float(rotation[0].replace(",", "."))
+        print(f"Rotation: {rotation}")
         return rotation
 
     def read_from_file(self, path, config="CT"):
@@ -115,9 +119,9 @@ class IndustrialGeometryEQNR:
             "DSO": f"{root}Setup/source to table distance",  # Distance Source Origin (mm)
             "pixel_width": f"{root}Detector/pixel width microns",
             "pixel_height": f"{root}Detector/pixel height microns",
-            "detector_pixel_width": f"{root}Technique Configuration/Detector/width pixels",
-            "detector_pixel_height": f"{root}/Technique Configuration/Detector/height pixels",
-            "rotation": f"{root}/Technique Configuration/Detector/rotation description",
+            "detector_pixel_width": f"{root}Detector/width pixels",
+            "detector_pixel_height": f"{root}Detector/height pixels",
+            "rotation": f"{root}Detector/rotation description",
         }
 
         file_info = self.read_dict_from_file(path)
@@ -197,9 +201,7 @@ class ProjectionsEQNR:
             for i in range(number_of_projections)
         ]
 
-        self.correction_parent = (
-            Path(root).parent[0] if correction_parent == None else correction_parent
-        )
+        self.find_corrections(correction_parent)
         self.name_flat = name_flat
         self.name_dark = name_dark
 
@@ -207,14 +209,15 @@ class ProjectionsEQNR:
             self.roi = self.load_tif(
                 os.path.join(self.correction_parent, name_flat)
             ).shape
-            print(self.roi)
         else:
             self.roi = roi
 
         if geometry is None:
-            self.geometry, geom_values = IndustrialGeometryEQNR()
+            geom_obj = IndustrialGeometryEQNR()
+            self.geometry, geom_values = geom_obj.golden_geometry, geom_obj.values
         else:
-            self.geometry, geom_values = IndustrialGeometryEQNR({"path": geometry})
+            geom_obj = IndustrialGeometryEQNR(default=False, path=geometry)
+            self.geometry, geom_values = geom_obj.golden_geometry, geom_obj.values
             self.geometry.nDetector = np.array([self.roi[0], self.roi[1]])
             self.geometry.nVoxel = np.array([self.roi[0], self.roi[0], self.roi[1]])
             self.geometry.sVoxel = self.geometry.dVoxel * self.geometry.nVoxel
@@ -231,8 +234,9 @@ class ProjectionsEQNR:
                 0, angle_step * self.number_of_projections, angle_step
             )
         else:
-            # self.angles = np.linspace(0, 2 * np.pi, self.number_of_projections)
-            self.angles = self.read_angles(self.root)
+            self.angles = np.linspace(0, 2 * np.pi, self.number_of_projections)
+            # self.angles = self.read_angles(os.path.join(self.root, f"{exp_name}"))
+            # RSD: Check if ok.
 
         self.projections = None
 
@@ -252,7 +256,14 @@ class ProjectionsEQNR:
             self.projections[i] = im
 
         self.save_h5()
-        self.plot_projection(0)
+        # self.plot_projection(0)
+
+    def find_corrections(self, correction_parent):
+        """Finds correction files in given folder"""
+        self.correction_parent = (
+            Path(self.root).parent if correction_parent == None else correction_parent
+        )
+        return
 
     def normalise_projection(self, proj: np.ndarray, tol=1e-6):
         """Performs flatfield and darkfield correction on projection image. Also, inverts images"""
@@ -303,11 +314,13 @@ class ProjectionsEQNR:
         return im
 
     def read_angles(self, folder_path):
-
+        full_path = os.path.join(folder_path, "positions.txt")
         raw_data = pd.read_csv(
-            folder_path, sep=" ", header=None, skipfooter=2, skiprows=1
+            full_path, sep=" ", header=None, skipfooter=2, skiprows=1, engine="python"
         )
-        angles = np.array([float(angle.replace(",", ".")) for angle in raw_data[0]])
+        angles = np.array(
+            [float(str(angle).replace(",", ".")) for angle in raw_data[0]]
+        )
 
         assert angles.dtype == np.float64
         "Wrong conversion. See read_angles(self)"
@@ -343,6 +356,21 @@ class ProjectionsEQNR:
         plt.show()
         return
 
+    def visualise(self, idx=0):
+        """Visualise processed projection"""
+
+        with h5py.File(os.path.join(self.o_root, f"{self.exp_name}.h5"), "r") as f:
+
+            data = np.squeeze(np.array(f["projections"][f"{str(idx).zfill(5)}"]))
+
+            plt.imshow(
+                data,
+                cmap="gray",
+            )
+            plt.colorbar()
+            plt.show()
+        return
+
 
 class DynamicProjectionsEQNR(ProjectionsEQNR):
     """
@@ -366,7 +394,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
     name_dark: str
         Name of dark field correction file
     geometry: str
-        Path to .pkl with Tigre geometry corresponding to CT scanner geometry.
+        Path to .nsprg with Tigre geometry corresponding to CT scanner geometry.
     roi: tuple
         Tuple with width and height of region of interest. Will crop middle section.
     rotation: int
@@ -387,7 +415,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         rotation=0,
     ):
 
-        super.__init__(
+        super().__init__(
             root,
             exp_name,
             o_root,
@@ -413,15 +441,10 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         ]
 
         self.revolution_folders = [
-            (re.search(" \d-", dir), dir) for dir in self.revolution_folders
+            (int((re.search(" \d+-", dir).group(0)).strip("-")), dir)
+            for dir in self.revolution_folders
         ]
         self.revolution_folders = sorted(self.revolution_folders)
-
-        self.correction_parent = (
-            os.path.join(self.root, "Corrections")
-            if correction_parent is None
-            else correction_parent
-        )
 
         return
 
@@ -457,16 +480,26 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
             f["angles"].create_dataset(f"{str(idx).zfill(5)}", data=angles)
         return
 
+    def find_corrections(self, correction_parent):
+        """Finds correction files in given folder"""
+        self.correction_parent = (
+            os.path.join(self.root, "Corrections")
+            if correction_parent is None
+            else correction_parent
+        )
+        return
+
     def __call__(self):
 
         self.init_save_h5()
 
         # RSD: Could (should) parallise, but is not frequently used code.
-        for i, dir in enumerate(self.revolution_folders):
+        for i, (d_idx, dir) in enumerate(tqdm.tqdm(self.revolution_folders[:-1])):
 
-            assert i == dir[0]
+            assert i == d_idx
+            "Revolution folders are not in order!"
 
-            data = np.zeros(self.nproj_360, self.roi[0], self.roi[1])
+            data = np.zeros((self.nproj_360, self.roi[0], self.roi[1]))
 
             # idx = re.search(" \d-", dir) #RSD : Already done in __init__()
             folder_path = os.path.join(self.root, dir)
@@ -477,7 +510,9 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
             for j in range(self.nproj_360):
 
                 file = [
-                    item for item in filenames if item.endswith(f"{j.zfill(5)}.tif")
+                    item
+                    for item in filenames
+                    if item.endswith(f"{str(j).zfill(5)}.tif")
                 ]
                 assert len(file) == 1
                 "More matches/ Zero matches. Cannot proceed!"
@@ -489,9 +524,35 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
                 im = self.remove_defects(im)
                 im = self.rotate_projection(im)
                 im = self.crop_roi(im, self.roi)
-                self.data[j] = im
+                data[j] = im
 
             self.save_2_h5(data, angles, i)
+
+        # RSD: Last revolution is special case
+        i += 1
+        d_idx = self.revolution_folders[-1][0]
+        dir = self.revolution_folders[-1][1]
+        assert i == d_idx
+        "Zero position is not last revolution!"
+        folder_path = os.path.join(self.root, dir)
+        filenames = os.listdir(folder_path)
+        angles = self.read_angles(folder_path)
+        data = np.zeros((4, self.roi[0], self.roi[1]))
+        for j in range(4):
+            file = [
+                item for item in filenames if item.endswith(f"{str(j).zfill(5)}.tif")
+            ]
+            assert len(file) == 1
+            "More matches/ Zero matches. Cannot proceed!"
+            full_path = os.path.join(folder_path, file[0])
+            im = self.load_tif(full_path)
+            im = self.normalise_projection(im)
+            im = self.remove_defects(im)
+            im = self.rotate_projection(im)
+            im = self.crop_roi(im, self.roi)
+            data[j] = im
+
+        self.save_2_h5(data, angles, i)
 
         # RSD: Plot anything?
         return

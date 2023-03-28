@@ -25,11 +25,18 @@ parser.add_argument(
     help="Geometry path if not default",
 )
 parser.add_argument(
-    "-roi", type=tuple, required=False, default=(), help="ROI path if not default"
+    "-roi",
+    type=int,
+    required=False,
+    default=0,
+    nargs="+",
+    help="ROI path if not default",
 )
 parser.add_argument(
     "-rot", type=float, required=False, default=0, help="Rotation of projections"
 )
+parser.add_argument("-vis", type=bool, default=True, help="Visual inspection")
+# parser.add_argument("-step0", type=str, required=True, help="Step 0 nsiprg filename") #Untrue
 
 
 args, unparsed = parser.parse_known_args()
@@ -39,9 +46,9 @@ if args.correction == "":
     args.correction = None
 
 if args.geometry == "":
-    args.geom = None
+    args.geometry = None
 
-if args.roi == ():
+if args.roi == 0:
     args.roi = None
 
 if args.dynamic:
@@ -52,9 +59,9 @@ if args.dynamic:
         args.oroot,
         args.numProj,
         args.correction,
-        geometry=args.geom,
+        geometry=args.geometry,
         roi=args.roi,
-        rot=args.rot,
+        rotation=args.rot,
     )
 
 else:
@@ -65,9 +72,12 @@ else:
         args.oroot,
         args.numProj,
         args.correction,
-        geometry=args.geom,
+        geometry=args.geometry,
         roi=args.roi,
-        rot=args.rot,
+        rotation=args.rot,
     )
 
 preprocess()
+
+if args.vis:
+    preprocess.visualise()

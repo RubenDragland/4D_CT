@@ -247,7 +247,7 @@ class TomoBankDataCT(ReconstructionsDataCT):
         return
 
 
-class EqNRDataCT(ReconstructionsDataCT):
+class EquinorDataCT(ReconstructionsDataCT):
     def __init__(self, root, name, o_root, o_name):
         super().__init__(o_root, o_name)
         self.root = root
@@ -307,11 +307,49 @@ class EqNRDataCT(ReconstructionsDataCT):
         o[ReconstructionsDataCT.NOISY_KEY].create_dataset(
             f"{str(idx).zfill(5)}", data=rec
         )
-        # sino = sino.transpose(2, 0, 1) #RSD: Consider, unsure on format for reconstruction
-        return data
+        return
+
+
+class EquinorDynamicCT(EquinorDataCT):
+    """
+    Class to handle processed projections from 4DCT experiments at Equinor.
+    The class can add reconstruction to machine learning dataset format.
+    Additionally, it can reconstruct the data and plot the results, with the added option to merge datasets.
+    """
+
+    def __init__(self, root, name, o_root, o_name):
+        super().__init__(self, root, name, o_root, o_name)
+        return
+
+    def reconstruct_noisy(self, o, f, data, idx, dyn_slice=True):
+        listGpuNames = gpu.getGpuNames()
+        gpuids = gpu.getGpuIds(listGpuNames[0])
+
+        with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
+            geo = pkl.load(g)
+
+        angles = np.array(f["angles"])
+        # data = np.squeeze(f[ReconstructionsDataCT.EQNR_PROJECTIONS]) #RSD: More to it than that
+        pass  # RSD: Not to be used yet.
+
+    def reconstruct_singles(self):
+        pass
+
+    def plot_reconstruction(self, idx):
+        pass
+
+    def plot_4DCT(self):
+        pass
+
+    def merge_datasets(self):
+        pass
 
 
 class EquinorReconstructions(ReconstructionsDataCT):
+    """
+    Class to handle the Equinor reconstructions in .raw format, and reconstruct noisy samples.
+    """
+
     def __init__(self, root, name, o_root, o_name):
         super().__init__(o_root, o_name)
         self.root = root
@@ -320,9 +358,50 @@ class EquinorReconstructions(ReconstructionsDataCT):
         return
 
     def reconstruct_target(self, o, f, idx):
-        pass
 
-    #  Make this class fully automated, and ensure that the other classes follow the same principle.
+        dat_file = pd.read_csv(
+            os.path.join(self.root, f"{self.name}.dat"),
+            sep=":",
+            header=None,
+            names=["attribute", "value"],
+            index_col=0,
+        )
+        resolution = dat_file.loc["resolution", "value"].split(" ")
+        voxel_size = dat_file.loc["SliceThickness", "value"].split(" ")
+        voxel_size = [float(i) for i in voxel_size]  # RSD: Use?
+        w, h, d = [int(i) for i in resolution]
+
+        path_raw = os.path.join(self.root, f"{self.name}.raw")
+        with open(path_raw, "rb") as g:
+            data = np.fromfile(g, dtype=np.float32).reshape(w, h, d)
+
+        o[ReconstructionsDataCT.TARGET_KEY].create_dataset(
+            f"{str(idx).zfill(5)}", data=data
+        )
+        return data
+
+    def reconstruct_noisy(self, o, f, data, idx, n_angles, dyn_slice=False):
+
+        listGpuNames = gpu.getGpuNames()
+        gpuids = gpu.getGpuIds(listGpuNames[0])
+
+        n_angles = n_angles  # np.random.randint(45, 200)  # RSD: How many projections?
+        angles = np.linspace(0, 2 * np.pi, n_angles, endpoint=False)
+
+        # RSD: This part is uncertain. Possibly choose between micro and industrial instead.
+        with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
+            geo = pkl.load(g)
+
+        projs = tigre.Ax(data, geo, angles, gpuids=gpuids)
+
+        # RSD: Add noise if needed. For now undersampling.
+
+        # RSD: Reconstruction. Choose algorithm.
+        rec = algs.fdk(projs, geo, angles, gpuids=gpuids)
+        o[ReconstructionsDataCT.NOISY_KEY].create_dataset(
+            f"{str(idx).zfill(5)}", data=rec
+        )
+        return
 
 
 def get_dataset_keys(f):
