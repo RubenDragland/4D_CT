@@ -69,3 +69,5 @@ else:
         roi=args.roi,
         rot=args.rot,
     )
+
+preprocess()
