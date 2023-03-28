@@ -466,6 +466,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
                 full_path = os.path.join(folder_path, file[0])
 
                 im = self.load_tif(full_path)
+                im = self.normalise_projection(im)
                 im = self.remove_defects(im)
                 im = self.rotate_projection(im)
                 im = self.crop_roi(im, self.roi)

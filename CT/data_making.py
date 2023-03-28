@@ -72,7 +72,7 @@ class ReconstructionsDataCT:
 
         for i, obj in enumerate(objects):
 
-            index = self.__len__()  # +i
+            index = self.__len__()
             f = h5py.File(os.path.join(obj.root, f"{obj.name}.h5"), "r")
             data = obj.reconstruct_target(o, f, index)
             obj.reconstruct_noisy(o, f, data, index)
@@ -188,17 +188,16 @@ class TomoBankPhantomCT(ReconstructionsDataCT):
             data, geo, angles, gpuids=gpuids
         )  # RSD: Need shape (angles, height, width)
 
-        plt.imshow(projs[0], cmap="gray")
-        plt.show()
+        # plt.imshow(projs[0], cmap="gray")
+        # plt.show()
 
-        print(projs.shape)
+        # print(projs.shape)
 
         geo.rotDetector = np.array([0, 0, 0])
         # RSD: Reconstruction
         rec = algs.fdk(
             projs, geo, angles, gpuids=gpuids
         )  # RSD: Need same shape as target EQNR gave (height, width, width) Plus renormalization.
-        print(rec.shape)
         rec = (rec - np.min(rec)) / (np.max(rec) - np.min(rec))
 
         o[ReconstructionsDataCT.NOISY_KEY].create_dataset(
