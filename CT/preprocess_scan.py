@@ -36,7 +36,7 @@ args, unparsed = parser.parse_known_args()
 
 
 if args.correction == "":
-    args.correction = args.root
+    args.correction = None
 
 if args.geometry == "":
     args.geom = None

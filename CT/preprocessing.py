@@ -417,6 +417,12 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         ]
         self.revolution_folders = sorted(self.revolution_folders)
 
+        self.correction_parent = (
+            os.path.join(self.root, "Corrections")
+            if correction_parent is None
+            else correction_parent
+        )
+
         return
 
     def init_save_h5(self):
