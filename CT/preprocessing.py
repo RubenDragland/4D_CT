@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import h5py
 import pickle as pkl
+import os
+import re
 
 """
 Here, we will handle tif files obtained at EQNR.
@@ -130,6 +132,34 @@ class IndustrialGeometryEQNR:
 
 
 class ProjectionsEQNR:
+    """
+    A class to preprocess and centralise an ordinary CT measurement
+
+    Attributes
+    ----------
+
+    root: str
+        parent path to the data folder
+    exp_name: str/list
+        experiment name (Fix)
+    o_root: str
+        path to output data location
+    number_of_projections: int
+        Number of projections
+    correction_parent: str
+        Path to correction files
+    name_flat: str
+        Name of flat field correction file
+    name_dark: str
+        Name of dark field correction file
+    geometry: str
+        Path to .pkl with Tigre geometry corresponding to CT scanner geometry.
+    roi: tuple
+        Tuple with width and height of region of interest. Will crop middle section.
+    rotation: int
+        Rotation of projections.
+    """
+
     def __init__(
         self,
         root,
@@ -169,12 +199,6 @@ class ProjectionsEQNR:
             self.roi = roi
 
         if geometry is None:
-            # self.geometry = tigre.geometry(
-            #     mode="cone",
-            #     default=True,
-            #     nVoxel=(self.roi[0], self.roi[0], self.roi[1]),
-            #     nDetector=(self.roi[0], self.roi[1]),
-            # )
             self.geometry = IndustrialGeometryEQNR()
         else:
             self.geometry = IndustrialGeometryEQNR({"path": geometry})
@@ -194,13 +218,12 @@ class ProjectionsEQNR:
                 0, angle_step * self.number_of_projections, angle_step
             )
         else:
-            self.angles = np.linspace(0, 2 * np.pi, self.number_of_projections)
+            # self.angles = np.linspace(0, 2 * np.pi, self.number_of_projections)
+            self.angles = self.read_angles(self.root)
 
         self.projections = None
 
     def __call__(self):
-
-        # RSD: Consider batch processing. Takes some time, but luckily, it will be done only once per dataset.
 
         self.projections = np.zeros(
             (self.number_of_projections, self.roi[0], self.roi[1])
@@ -266,6 +289,17 @@ class ProjectionsEQNR:
         im = np.asarray(im)
         return im
 
+    def read_angles(self, folder_path):
+
+        raw_data = pd.read_csv(
+            folder_path, sep=" ", header=None, skipfooter=2, skiprows=1
+        )
+        angles = np.array([float(angle.replace(",", ".")) for angle in raw_data[0]])
+
+        assert angles.dtype == np.float64
+        "Wrong conversion. See read_angles(self)"
+        return angles
+
     def save_h5(self):
         """Saving projections as h5 file with geometry data for reconstruction"""
         geom_root = os.path.join(self.o_root, f"{self.exp_name}.pkl")
@@ -294,4 +328,150 @@ class ProjectionsEQNR:
         plt.imshow(self.projections[index], cmap="gray")
         plt.colorbar()
         plt.show()
+        return
+
+
+class DynamicProjectionsEQNR(ProjectionsEQNR):
+    """
+    A class to preprocess and centralise a dynamical CT measurement
+
+    Attributes
+    ----------
+
+    root: str
+        parent path to the data folder
+    exp_name: str/list
+        experiment name (Fix)
+    o_root: str
+        path to output data location
+    number_of_projections: int
+        Number of projections in one revolution.
+    correction_parent: str
+        Path to correction files
+    name_flat: str
+        Name of flat field correction file
+    name_dark: str
+        Name of dark field correction file
+    geometry: str
+        Path to .pkl with Tigre geometry corresponding to CT scanner geometry.
+    roi: tuple
+        Tuple with width and height of region of interest. Will crop middle section.
+    rotation: int
+        Rotation of projections.
+    """
+
+    def __init__(
+        self,
+        root,
+        exp_name,
+        o_root,
+        number_of_projections,
+        correction_parent=None,
+        name_flat="gain0.tif",
+        name_dark="offset.tif",
+        geometry=None,
+        roi=None,
+        rotation=0,
+    ):
+
+        super.__init__(
+            root,
+            exp_name,
+            o_root,
+            number_of_projections,
+            correction_parent=correction_parent,
+            name_flat=name_flat,
+            name_dark=name_dark,
+            geometry=geometry,
+            roi=roi,
+            rotation=rotation,
+        )
+        # RSD: parent does some unnecessary work. Replace the things that are wrong.
+
+        self.nproj_360 = number_of_projections
+        self.nrevs = 20  # RSD: Change
+        self.tot_steps = self.nproj_360 * self.nrevs
+
+        self.revolution_folders = os.listdir(root)
+        self.revolution_folders = [
+            item
+            for item in self.revolution_folders
+            if item.startswith("Radiographs-step")
+        ]
+
+        self.revolution_folders = [
+            (re.search(" \d-", dir), dir) for dir in self.revolution_folders
+        ]
+        self.revolution_folders = sorted(self.revolution_folders)
+
+        return
+
+    def init_save_h5(self):
+
+        geom_root = os.path.join(self.o_root, f"{self.exp_name}.pkl")
+        with open(geom_root, "wb+") as g:
+            pkl.dump(self.geometry, g)
+
+        with h5py.File(os.path.join(self.o_root, f"{self.exp_name}.h5"), "w") as f:
+            f.create_group("meta")
+            f["meta"].attrs["metallic_mean_n"] = self.metallic_mean_n
+            f["meta"].attrs["rotation"] = self.rotation
+            f["meta"].attrs["roi"] = self.roi
+            f["meta"].attrs["root"] = self.root
+            f["meta"].attrs["correction_parent"] = self.correction_parent
+            f["meta"].attrs["name_flat"] = self.name_flat
+            f["meta"].attrs["name_dark"] = self.name_dark
+            f["meta"].attrs["number_of_projections"] = self.tot_steps
+            f["meta"].attrs["nproj_360"] = self.nproj_360
+            f["meta"].attrs["nrevs"] = self.nrevs
+            f["meta"].attrs["exp_name"] = self.exp_name
+            f["meta"].attrs["geometry"] = geom_root
+            f.create_group("projections")
+            f.create_group("angles")
+
+        return
+
+    def save_2_h5(self, data, angles, idx):
+        with h5py.File(os.path.join(self.o_root, f"{self.exp_name}.h5"), "r+") as f:
+
+            f["projections"].create_dataset(f"{str(idx).zfill(5)}", data=data)
+            f["angles"].create_dataset(f"{str(idx).zfill(5)}", data=angles)
+        return
+
+    def __call__(self):
+
+        self.init_save_h5()
+
+        # RSD: Could (should) parallise, but is not frequently used code.
+        for i, dir in enumerate(self.revolution_folders):
+
+            assert i == dir[0]
+
+            data = np.zeros(self.nproj_360, self.roi[0], self.roi[1])
+
+            # idx = re.search(" \d-", dir) #RSD : Already done in __init__()
+            folder_path = os.path.join(self.root, dir)
+            filenames = os.listdir(folder_path)
+
+            angles = self.read_angles(folder_path)
+
+            for j in range(self.nproj_360):
+
+                file = [
+                    item for item in filenames if item.endswith(f"{j.zfill(5)}.tif")
+                ]
+                assert len(file) == 1
+                "More matches/ Zero matches. Cannot proceed!"
+
+                full_path = os.path.join(folder_path, file[0])
+
+                im = self.load_tif(full_path)
+                im = self.remove_defects(im)
+                im = self.rotate_projection(im)
+                im = self.crop_roi(im, self.roi)
+                self.data[j] = im
+
+            self.save_2_h5(data, angles, i)
+
+        # RSD: Plot anything?
         return
