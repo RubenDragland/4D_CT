@@ -31,6 +31,7 @@ class IndustrialGeometryEQNR:
                 "DSO": 930,  # Distance Source Origin (mm)
                 "nDetector": np.array([2048, 2048]),  # number of pixels (px)
                 "dDetector": np.array([0.2, 0.2]),  # size of each pixel (mm)
+                "rotation": 0,
             }
         else:
             try:
@@ -69,8 +70,9 @@ class IndustrialGeometryEQNR:
         golden_geometry.COR = 0
 
         golden_geometry.rotDetector = np.array([0, 0, 0])  # Rotation of detector
+        # golden_geometry.rotDetector = np.array([self.values["rotation"], 0, 0])  # Rotation of detector
 
-        return golden_geometry
+        return (golden_geometry, self.values)
 
     def read_dict_from_file(self, path):
 
@@ -96,6 +98,13 @@ class IndustrialGeometryEQNR:
                     keys.pop()
         return tot_dict
 
+    def fix_rotation(self, file_info, attributes):
+        rotation_raw = file_info[attributes["rotation"]]
+        rotation = re.findall(r"\d+", rotation_raw)
+        assert len(rotation) == 1
+        rotation = float(rotation[0].replace(",", "."))
+        return rotation
+
     def read_from_file(self, path, config="CT"):
         # RSD: Read from file.
 
@@ -108,9 +117,12 @@ class IndustrialGeometryEQNR:
             "pixel_height": f"{root}Detector/pixel height microns",
             "detector_pixel_width": f"{root}Technique Configuration/Detector/width pixels",
             "detector_pixel_height": f"{root}/Technique Configuration/Detector/height pixels",
+            "rotation": f"{root}/Technique Configuration/Detector/rotation description",
         }
 
         file_info = self.read_dict_from_file(path)
+
+        rotation = self.fix_rotation(file_info, attributes)
 
         self.values = {
             "DSD": float(file_info[attributes["DSD"]]),
@@ -127,6 +139,7 @@ class IndustrialGeometryEQNR:
                     float(file_info[attributes["pixel_height"]]) / 1000,
                 ]
             ),  # size of each pixel (mm)
+            "rotation": rotation,
         }
         return
 
@@ -199,15 +212,15 @@ class ProjectionsEQNR:
             self.roi = roi
 
         if geometry is None:
-            self.geometry = IndustrialGeometryEQNR()
+            self.geometry, geom_values = IndustrialGeometryEQNR()
         else:
-            self.geometry = IndustrialGeometryEQNR({"path": geometry})
+            self.geometry, geom_values = IndustrialGeometryEQNR({"path": geometry})
             self.geometry.nDetector = np.array([self.roi[0], self.roi[1]])
             self.geometry.nVoxel = np.array([self.roi[0], self.roi[0], self.roi[1]])
             self.geometry.sVoxel = self.geometry.dVoxel * self.geometry.nVoxel
             self.geometry.sDetector = self.geometry.dDetector * self.geometry.nDetector
 
-        self.rotation = rotation
+        self.rotation = geom_values["rotation"] if rotation == 0 else rotation
 
         self.metallic_mean_n = metallic_mean_n
         if self.metallic_mean_n:
