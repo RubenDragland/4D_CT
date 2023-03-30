@@ -20,6 +20,11 @@ import h5py
 # RSD: From h5 to dataset is the plan.
 
 
+transform_dict = {
+    # RSD: Write transformations. Use torchvision.io or something.
+}
+
+
 class Dataset3D(Dataset):
     def __init__(
         self,

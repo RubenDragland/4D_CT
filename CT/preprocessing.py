@@ -363,12 +363,12 @@ class ProjectionsEQNR:
 
             data = np.squeeze(np.array(f["projections"][f"{str(idx).zfill(5)}"]))
 
-            plt.imshow(
-                data,
-                cmap="gray",
-            )
-            plt.colorbar()
-            plt.show()
+        plt.imshow(
+            data[idx],
+            cmap="gray",
+        )
+        plt.colorbar()
+        plt.show()
         return
 
 
