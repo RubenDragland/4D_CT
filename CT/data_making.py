@@ -166,7 +166,6 @@ class TomoBankPhantomCT(ReconstructionsDataCT):
             )[np.newaxis, :, :]
 
             data = np.vstack([data] * depth)
-            print(data.shape)
             o[ReconstructionsDataCT.TARGET_KEY].create_dataset(
                 f"{str(idx).zfill(5)}", data=data
             )
@@ -282,9 +281,7 @@ class EquinorDataCT(ReconstructionsDataCT):
         with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
             geo = pkl.load(g)
 
-        angles = np.array(
-            f["angles"]
-        )  # RSD: Constructed, not from file. Perhaps change this.
+        angles = np.array(f["angles"])
         data = np.squeeze(f[ReconstructionsDataCT.EQNR_PROJECTIONS])
         print(data.shape)
 
