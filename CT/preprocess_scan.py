@@ -1,9 +1,11 @@
 import argparse
 from preprocessing import *
 
-parser = argparse.ArgumentParser(
-    description="3DTomoGAN, undersampled reconstruction enhancement 4D-CT"
-)
+"""
+Do preprocessing of a EQNR scan
+"""
+
+parser = argparse.ArgumentParser(description="EQNR preprocessing of obtained CT scan")
 
 parser.add_argument("-root", type=str, required=True, help="root path")
 parser.add_argument(

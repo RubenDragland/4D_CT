@@ -12,6 +12,7 @@ import tigre
 import tigre.algorithms as algs
 import tigre.utilities.gpu as gpu
 import matplotlib.pyplot as plt
+import nsiefx
 
 
 class ReconstructionsDataCT:
@@ -28,10 +29,11 @@ class ReconstructionsDataCT:
     EQNR_ANGLES = "angles"
     EQNR_GEOMETRY = "geometry"
 
-    def __init__(self, data_root, data_name):
+    def __init__(self, data_root, data_name, n_angles=100):
         self.data_root = data_root
         self.data_name = data_name
         self.full_path = os.path.join(self.data_root, f"{self.data_name}.h5")
+        self.n_angles = n_angles  # RSD: Redo
 
         try:
             o = h5py.File(self.full_path, "w-")
@@ -56,12 +58,18 @@ class ReconstructionsDataCT:
 
     def add_item(self, obj):
         o = h5py.File(self.full_path, "r+")
-        f = h5py.File(os.path.join(obj.root, f"{obj.name}.h5"), "r")
+        f = obj.read_item(
+            obj
+        )  # h5py.File(os.path.join(obj.root, f"{obj.name}.h5"), "r")
         data = obj.reconstruct_target(o, f, self.__len__())
-        obj.reconstruct_noisy(o, f, data, self.__len__())
+        obj.reconstruct_noisy(o, f, data, self.__len__(), self.n_angles)
         f.close()
         o.close()
         return
+
+    def read_item(self, obj):
+        f = h5py.File(os.path.join(obj.root, f"{obj.name}.h5"), "r")
+        return f
 
     def __len__(self):
         return len(h5py.File(self.full_path)[self.NOISY_KEY].keys())
@@ -73,12 +81,33 @@ class ReconstructionsDataCT:
         for i, obj in enumerate(objects):
 
             index = self.__len__()
-            f = h5py.File(os.path.join(obj.root, f"{obj.name}.h5"), "r")
+            # f = h5py.File(os.path.join(obj.root, f"{obj.name}.h5"), "r")
+            f = obj.read_item(obj)
             data = obj.reconstruct_target(o, f, index)
-            obj.reconstruct_noisy(o, f, data, index)
+            obj.reconstruct_noisy(o, f, data, index, self.n_angles)
             f.close()
 
         o.close()
+        return
+
+    def visualise(self, idx: list = [-1]):
+
+        o = h5py.File(self.full_path, "r")
+        fig, ax = plt.subplots(1, 2)
+
+        for i in idx:
+            if i == -1:
+                i = self.__len__() - 1
+            midsection = o[self.TARGET_KEY][f"{str(i).zfill(5)}"].shape[0] // 2
+            ax[0].imshow(
+                o[self.TARGET_KEY][f"{str(i).zfill(5)}"][midsection], cmap="Greys"
+            )
+            ax[1].imshow(
+                o[self.NOISY_KEY][f"{str(i).zfill(5)}"][midsection], cmap="Greys"
+            )
+            ax[0].set_axis_off()
+            ax[1].set_axis_off()
+            plt.show()
         return
 
 
@@ -171,13 +200,13 @@ class TomoBankPhantomCT(ReconstructionsDataCT):
             )
         return data
 
-    def reconstruct_noisy(self, o, f, data, idx):
+    def reconstruct_noisy(self, o, f, data, idx, n_angles):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
         print(data.shape)
 
-        n_angles = np.random.randint(20, 120)  # RSD: How many projections?
+        # n_angles = np.random.randint(20, 120)  # RSD: How many projections?
         # n_angles = 500
         angles = np.linspace(0, 2 * np.pi, n_angles, endpoint=False)
         phantom_geo = PhantomGeometry()
@@ -224,11 +253,11 @@ class TomoBankDataCT(ReconstructionsDataCT):
         # sino = sino.transpose(2, 0, 1) #RSD: Consider, unsure on format for reconstruction
         return data
 
-    def reconstruct_noisy(self, o, f, data, i, n_voxels=512):
+    def reconstruct_noisy(self, o, f, data, i, n_angles, n_voxels=512):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
-        n_angles = np.random.randint(45, 200)  # RSD: How many projections?
+        # n_angles = np.random.randint(45, 200)  # RSD: How many projections?
         angles = np.linspace(0, 2 * np.pi, n_angles, endpoint=False)
         geo = tigre.geometry(
             mode="cone", default=True, nVoxel=[data.shape[0], data.shape[1], n_voxels]
@@ -273,7 +302,7 @@ class EquinorDataCT(ReconstructionsDataCT):
         return data
 
     def reconstruct_noisy(
-        self, o, f, data, idx, dyn_slice=True
+        self, o, f, data, idx, n_angles, dyn_slice=True
     ):  # RSD: Remember to implement dynamical slice
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
@@ -287,14 +316,14 @@ class EquinorDataCT(ReconstructionsDataCT):
 
         # RSD: Add noise if needed. For now undersampling.
 
-        n_projs = np.random.randint(
-            len(angles) // 16, len(angles)
-        )  # RSD: How many projections?
-        print(len(angles), n_projs)
-        slicing = len(angles) // n_projs
+        # n_projs = np.random.randint(
+        #     len(angles) // 16, len(angles)
+        # )  # RSD: How many projections?
+        # print(len(angles), n_projs)
+        slicing = len(angles) // n_angles
         if dyn_slice:
-            angles = angles[:n_projs]
-            data = data[:n_projs]
+            angles = angles[:n_angles]
+            data = data[:n_angles]
         else:
             angles = angles[::slicing]
             data = data[::slicing]
@@ -318,7 +347,7 @@ class EquinorDynamicCT(EquinorDataCT):
         super().__init__(self, root, name, o_root, o_name)
         return
 
-    def reconstruct_noisy(self, o, f, data, idx, dyn_slice=True):
+    def reconstruct_noisy(self, o, f, data, idx, n_angles, dyn_slice=True):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
@@ -348,11 +377,14 @@ class EquinorReconstructions(ReconstructionsDataCT):
     """
 
     def __init__(self, root, name, o_root, o_name):
-        super().__init__(o_root, o_name)
+        super().__init__(o_root, o_name)  # RSD: not really necessary.
         self.root = root
         self.name = name
 
         return
+
+    def read_item(self, obj):
+        return None  # Not used for this instance. Complicated, but will probably work.
 
     def reconstruct_target(self, o, f, idx):
 
@@ -363,14 +395,25 @@ class EquinorReconstructions(ReconstructionsDataCT):
             names=["attribute", "value"],
             index_col=0,
         )
-        resolution = dat_file.loc["resolution", "value"].split(" ")
-        voxel_size = dat_file.loc["SliceThickness", "value"].split(" ")
+        resolution = dat_file.loc["Resolution", "value"].split(" ")
+        voxel_size = list(
+            filter(None, dat_file.loc["SliceThickness", "value"].split(" "))
+        )
         voxel_size = [float(i) for i in voxel_size]  # RSD: Use?
-        w, h, d = [int(i) for i in resolution]
+        res = list(filter(None, [i for i in resolution]))
+        w, h, d = [int(i) for i in res]
+        self.dims = (d, w, h)
+        # w, h, d = (1484 // 2, 1484 // 2, -1)  # RSD; Temporary fix
 
-        path_raw = os.path.join(self.root, f"{self.name}.raw")
-        with open(path_raw, "rb") as g:
-            data = np.fromfile(g, dtype=np.float32).reshape(w, h, d)
+        # path_raw = os.path.join(self.root, f"{self.name}.raw")
+        # with open(path_raw, "rb") as g:
+        #     data = np.fromfile(g, dtype=np.float32)  # .reshape((w, h, d))
+
+        data = np.zeros((d, w, h), dtype=np.float32)
+        # RSD: Believe crossection indexed by first index.
+        with nsiefx.open(os.path.join(self.root, f"{self.name}.nsihdr")) as volume:
+            for slice_idx in range(d):
+                data[slice_idx] = volume.read_slice(slice_idx)
 
         o[ReconstructionsDataCT.TARGET_KEY].create_dataset(
             f"{str(idx).zfill(5)}", data=data
@@ -386,8 +429,13 @@ class EquinorReconstructions(ReconstructionsDataCT):
         angles = np.linspace(0, 2 * np.pi, n_angles, endpoint=False)
 
         # RSD: This part is uncertain. Possibly choose between micro and industrial instead.
+        # Task is to create geo from reconstruction nsipro-file.
         with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
             geo = pkl.load(g)
+
+        # geo.nVoxel = np.array([1484, 1484, 1807])
+        geo.nVoxel = np.array(*self.dims)
+        geo.sVoxel = geo.nVoxel * geo.dVoxel
 
         projs = tigre.Ax(data, geo, angles, gpuids=gpuids)
 
