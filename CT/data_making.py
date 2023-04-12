@@ -194,7 +194,19 @@ class TomoBankPhantomCT(ReconstructionsDataCT):
                 np.float32
             )[np.newaxis, :, :]
 
-            data = np.vstack([data] * depth)
+            # data = np.vstack([data] * depth)
+            # Hardcoded, but does not really matter.
+            data_layer = np.vstack([data.deepcopy()] * 32)
+            blancks = np.zeros((32, data.shape[1], data.shape[2]))
+            for k in range(depth // 32):
+                if k == 0:
+                    data = data_layer
+                    continue
+                elif k % 2 == 0:
+                    data = np.vstack((data, data_layer))
+                else:
+                    data = np.vstack((data, blancks))
+
             o[ReconstructionsDataCT.TARGET_KEY].create_dataset(
                 f"{str(idx).zfill(5)}", data=data
             )
