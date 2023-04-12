@@ -25,12 +25,16 @@ def random_inverse_transform(tensor, p=0.5):
         return tensor
 
 
+def tio_identity(tensor):
+    return tensor.copy()
+
+
 inverse_transform = tio.Lambda(inverse_transform)
 random_inverse_transform = tio.Lambda(random_inverse_transform)
 
 flipping_transforms = tio.OneOf(
     {
-        tio.Identity(): 0.25,
+        tio.Lambda(tio_identity): 0.25,
         tio.RandomFlip(0, 1): 0.25,
         tio.RandomFlip(1, 1): 0.25,
         tio.RandomFlip(2, 1): 0.25,

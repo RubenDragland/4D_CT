@@ -12,7 +12,6 @@ import tigre
 import tigre.algorithms as algs
 import tigre.utilities.gpu as gpu
 import matplotlib.pyplot as plt
-import nsiefx
 
 
 class ReconstructionsDataCT:
@@ -35,10 +34,11 @@ class ReconstructionsDataCT:
         self.full_path = os.path.join(self.data_root, f"{self.data_name}.h5")
         self.n_angles = n_angles  # RSD: Redo
 
-        try:
-            o = h5py.File(self.full_path, "w-")
-        except:
-            o = h5py.File(self.full_path, "r+")
+        # try:
+        #     o = h5py.File(self.full_path, "w-")
+        # except:
+        #     o = h5py.File(self.full_path, "r+")
+        o = h5py.File(self.full_path, "a")
 
         # o = h5py.File(os.path.join(self.data_root, f"{self.data_name}.h5"), "a+")
         try:
@@ -196,8 +196,8 @@ class TomoBankPhantomCT(ReconstructionsDataCT):
 
             # data = np.vstack([data] * depth)
             # Hardcoded, but does not really matter.
-            data_layer = np.vstack([data.deepcopy()] * 32)
-            blancks = np.zeros((32, data.shape[1], data.shape[2]))
+            data_layer = np.vstack([data.copy()] * 32).astype(np.float32)
+            blancks = np.zeros((32, data.shape[1], data.shape[2])).astype(np.float32)
             for k in range(depth // 32):
                 if k == 0:
                     data = data_layer
@@ -420,6 +420,7 @@ class EquinorReconstructions(ReconstructionsDataCT):
         # path_raw = os.path.join(self.root, f"{self.name}.raw")
         # with open(path_raw, "rb") as g:
         #     data = np.fromfile(g, dtype=np.float32)  # .reshape((w, h, d))
+        import nsiefx
 
         data = np.zeros((d, w, h), dtype=np.float32)
         # RSD: Believe crossection indexed by first index.
