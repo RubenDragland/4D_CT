@@ -84,8 +84,8 @@ class ReconstructionsDataCT:
             # f = h5py.File(os.path.join(obj.root, f"{obj.name}.h5"), "r")
             f = obj.read_item(obj)
             data = obj.reconstruct_target(o, f, index)
-            obj.reconstruct_noisy(o, f, data, index, self.n_angles)
-            f.close()
+            obj.reconstruct_noisy(o, f, data, index, self.n_angles) # Close here instead. Fix
+            # f.close() #RSD: Issue for EQNRRec not h5 file.
 
         o.close()
         return
@@ -400,38 +400,57 @@ class EquinorReconstructions(ReconstructionsDataCT):
 
     def reconstruct_target(self, o, f, idx):
 
-        dat_file = pd.read_csv(
-            os.path.join(self.root, f"{self.name}.dat"),
-            sep=":",
-            header=None,
-            names=["attribute", "value"],
-            index_col=0,
-        )
-        resolution = dat_file.loc["Resolution", "value"].split(" ")
-        voxel_size = list(
-            filter(None, dat_file.loc["SliceThickness", "value"].split(" "))
-        )
-        voxel_size = [float(i) for i in voxel_size]  # RSD: Use?
-        res = list(filter(None, [i for i in resolution]))
-        w, h, d = [int(i) for i in res]
-        self.dims = (d, w, h)
-        # w, h, d = (1484 // 2, 1484 // 2, -1)  # RSD; Temporary fix
+        try:
 
-        # path_raw = os.path.join(self.root, f"{self.name}.raw")
-        # with open(path_raw, "rb") as g:
-        #     data = np.fromfile(g, dtype=np.float32)  # .reshape((w, h, d))
-        import nsiefx
+            dat_file = pd.read_csv(
+                os.path.join(self.root, f"{self.name}.dat"),
+                sep=":",
+                header=None,
+                names=["attribute", "value"],
+                index_col=0,
+            )
+            resolution = dat_file.loc["Resolution", "value"].split(" ")
+            voxel_size = list(
+                filter(None, dat_file.loc["SliceThickness", "value"].split(" "))
+            )
+            voxel_size = [float(i) for i in voxel_size]  # RSD: Use?
+            res = list(filter(None, [i for i in resolution]))
+            w, h, d = [int(i) for i in res]
+            self.dims = np.array([d, w, h])
 
-        data = np.zeros((d, w, h), dtype=np.float32)
-        # RSD: Believe crossection indexed by first index.
-        with nsiefx.open(os.path.join(self.root, f"{self.name}.nsihdr")) as volume:
-            for slice_idx in range(d):
-                data[slice_idx] = volume.read_slice(slice_idx)
+            path_raw = os.path.join(self.root, f"{self.name}.raw")
+            try:
+                with open(path_raw, "rb") as g:
+                    data = np.fromfile(g, dtype="uint16")  # .reshape((w, h, d))
+                    data = data.reshape((d,w,h))
+            except:
+                with open(path_raw, "rb") as g:
+                    data = np.fromfile(g, dtype="uint8")  # .reshape((w, h, d))
+                    data = data.reshape((d,w,h))
 
-        o[ReconstructionsDataCT.TARGET_KEY].create_dataset(
-            f"{str(idx).zfill(5)}", data=data
-        )
-        return data
+        except:
+            try:
+                import nsiefx
+
+                data = np.zeros((d, w, h), dtype=np.float32)
+                # RSD: Believe crossection indexed by first index.
+                with nsiefx.open(os.path.join(self.root, f"{self.name}.nsihdr")) as volume:
+                    for slice_idx in range(d):
+                        data[slice_idx] = volume.read_slice(slice_idx)
+
+            
+            except: KeyError("Did not find dataset, or unexpected format.")
+        
+        finally:
+        
+            o[ReconstructionsDataCT.TARGET_KEY].create_dataset(
+                        f"{str(idx).zfill(5)}", data=data.astype(np.float32)
+                    )
+            return data.astype(np.float32)           
+
+
+
+
 
     def reconstruct_noisy(self, o, f, data, idx, n_angles, dyn_slice=False):
 
@@ -443,11 +462,13 @@ class EquinorReconstructions(ReconstructionsDataCT):
 
         # RSD: This part is uncertain. Possibly choose between micro and industrial instead.
         # Task is to create geo from reconstruction nsipro-file.
-        with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
-            geo = pkl.load(g)
+        # with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
+        #     geo = pkl.load(g)
+        default_geo = PhantomGeometry() #RSD: TEST CASE IMPROVE
+        geo = default_geo()
 
         # geo.nVoxel = np.array([1484, 1484, 1807])
-        geo.nVoxel = np.array(*self.dims)
+        geo.nVoxel = self.dims
         geo.sVoxel = geo.nVoxel * geo.dVoxel
 
         projs = tigre.Ax(data, geo, angles, gpuids=gpuids)
