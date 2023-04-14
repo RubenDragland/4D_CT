@@ -26,48 +26,52 @@ def random_inverse_transform(tensor, p=0.5):
 
 
 def tio_identity(tensor):
-    return tensor.copy()
+    return torch.clone(tensor)
 
 
-inverse_transform = tio.Lambda(inverse_transform)
-random_inverse_transform = tio.Lambda(random_inverse_transform)
-
-flipping_transforms = tio.OneOf(
-    {
-        tio.Lambda(tio_identity): 0.25,
-        tio.RandomFlip(0, 1): 0.25,
-        tio.RandomFlip(1, 1): 0.25,
-        tio.RandomFlip(2, 1): 0.25,
-    }
-)
+includes = ("data", "target")
+inverse_transform = tio.Lambda(inverse_transform, include=includes)
+random_inverse_transform = tio.Lambda(random_inverse_transform, include=includes)
 
 # 31% change of not flipping
 # Prob could be changed as a param.
+# RSD: Issue: input and target must be flipped the same way
 advanced_flipping = tio.Compose(
     [
-        tio.RandomFlip(0, 0.31),
-        tio.RandomFlip(1, 0.31),
-        tio.RandomFlip(2, 0.31),
+        tio.RandomFlip(0, 0.31, include=includes),
+        tio.RandomFlip(1, 0.31, include=includes),
+        tio.RandomFlip(2, 0.31, include=includes),
     ]
 )
 
+flipping_transforms = tio.OneOf(
+    {
+        tio.Lambda(tio_identity, include=includes): 0.20,
+        tio.RandomFlip(0, 1, include=includes): 0.20,
+        tio.RandomFlip(1, 1, include=includes): 0.20,
+        tio.RandomFlip(2, 1, include=includes): 0.20,
+        advanced_flipping: 0.20,
+    }
+)
 
+
+# RSD: Figure out the different transforms.
 basic_transforms = tio.Compose(
     [
-        tio.RescaleIntensity((0, 1)),
+        tio.RescaleIntensity((0, 1), include=includes),
         flipping_transforms,
-        tio.RandomAffine(scales=1, degrees=(0, 360, 0, 0, 0, 0)),
-    ]
+        tio.RandomAffine(scales=1, degrees=(0, 360, 0, 0, 0, 0), include=includes),
+    ],
 )
 
 advanced_transforms = tio.Compose(
     [
         basic_transforms,
         random_inverse_transform,
-        tio.RandomElasticDeformation(num_control_points=(3, 3, 3), locked_borders=1),
-        tio.RandomMotion(
-            num_transforms=1, max_displacement=(5, 5, 5), locked_borders=1
-        ),
+        tio.RandomElasticDeformation(num_control_points=(10, 10, 10), locked_borders=1),
+        # tio.RandomMotion(
+        #     num_transforms=1, max_displacement=(5, 5, 5), locked_borders=1
+        # ),
         tio.OneOf(
             {
                 tio.RandomNoise(std=(0, 0.1)): 0.5,
@@ -94,8 +98,8 @@ class Dataset3D(Dataset):
     ):
         self.root = os.path.join(img_dir_root, filename)  # Change so h5 is implied
         self.filename = filename
-        self.transform = Dataset3D.transforms_dict[transform]
-        self.target_transform = Dataset3D.transforms_dict[target_transform]
+        self.transform = Dataset3D.transforms_dict["basic"]  # [transform]
+        self.target_transform = Dataset3D.transforms_dict["basic"]  # [target_transform]
 
     def __getitem__(self, index):
 
@@ -122,11 +126,18 @@ class Dataset3D(Dataset):
         #         ]
         #     )
         # )
-        if self.transform is not None:
-            data = self.transform(data)
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-        return data, target
+        # if self.transform is not None:
+        #     data = np.squeeze(self.transform(data[np.newaxis, :]))
+        # if self.target_transform is not None:
+        #     target = np.squeeze(self.target_transform(target[np.newaxis, :]))
+
+        # RSD: For now the same transforms have to be applied to data and target.
+        combined_dict = {"data": data[np.newaxis, :], "target": target[np.newaxis, :]}
+        combined_dict = self.transform(
+            combined_dict,
+        )  # include=("data", "target"))
+
+        return np.squeeze(combined_dict["data"]), np.squeeze(combined_dict["target"])
 
     def __len__(self):
         return len(
@@ -159,7 +170,7 @@ class Dataset3D(Dataset):
                 rng.normal(0, find_std(dimensions, size), 1)
                 .astype(int)
                 .clip(*find_bounds(dimensions, size))
-            )
+            )[0]
 
         rng = np.random.default_rng()
 
@@ -205,7 +216,7 @@ ToTensor --> In the loading of the data.
 Normalise (0,1)
 Crop --> In the loading of the data. 
 Flip 
-Rotate
+Rotate --> Must consider to rotate the first axis or all. The latter would move undersampling artefacts. But believe this was done in the successful trial
 Inverse
 Random Elastic Deformation (Non-linear, weakly)
 
