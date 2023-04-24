@@ -15,7 +15,6 @@ import matplotlib.pyplot as plt
 
 
 class ReconstructionsDataCT:
-
     NOISY_KEY = "noisy3D"
     TARGET_KEY = "target3D"
     SINO_KEY = "sinogram3D"
@@ -75,23 +74,22 @@ class ReconstructionsDataCT:
         return len(h5py.File(self.full_path)[self.NOISY_KEY].keys())
 
     def process_data(self, objects: list):
-
         o = h5py.File(self.full_path, "r+")
 
         for i, obj in enumerate(objects):
-
             index = self.__len__()
             # f = h5py.File(os.path.join(obj.root, f"{obj.name}.h5"), "r")
             f = obj.read_item(obj)
             data = obj.reconstruct_target(o, f, index)
-            obj.reconstruct_noisy(o, f, data, index, self.n_angles) # Close here instead. Fix
+            obj.reconstruct_noisy(
+                o, f, data, index, self.n_angles
+            )  # Close here instead. Fix
             # f.close() #RSD: Issue for EQNRRec not h5 file.
 
         o.close()
         return
 
     def visualise(self, idx: list = [-1]):
-
         o = h5py.File(self.full_path, "r")
         fig, ax = plt.subplots(1, 2)
 
@@ -111,11 +109,51 @@ class ReconstructionsDataCT:
         return
 
 
+class MicroGeometry:
+    def __init__(self):
+        self.values = {
+            "DSD": 502,  # Distance Source Detector (mm)
+            "DSO": 47,  # Distance Source Origin (mm)
+            "nDetector": np.array([1536, 1920]),  # number of pixels (px)
+            "dDetector": np.array([0.127, 0.127]),  # size of each pixel (mm)
+            "rotation": np.array([0, 0, 0]),  # Rotation of detector
+        }
+
+        self.geo = tigre.geometry(mode="cone", default=True)
+
+        self.geo.DSD = self.values["DSD"]  # Distance Source Detector (mm)
+        self.geo.DSO = self.values["DSO"]  # Distance Source Origin (mm)
+
+        self.geo.nDetector = self.values["nDetector"]  # number of pixels (px)
+        self.geo.dDetector = self.values["dDetector"]  # size of each pixel (mm)
+        self.geo.sDetector = (
+            self.geo.dDetector * self.geo.nDetector
+        )  # total size of the detector (mm)
+
+        self.geo.nVoxel = np.array(
+            [self.geo.nDetector[1], self.geo.nDetector[0], self.geo.nDetector[0]]
+        )
+        self.geo.dVoxel = np.repeat(self.geo.dDetector[0], 3)  # size of each voxel
+        self.geo.sVoxel = self.geo.dVoxel * self.geo.nVoxel  # total size of the image
+
+        self.geo.offOrigin = np.array([0, 0, 0])  # Offset of image from origin (mm)
+        self.geo.offDetector = np.array([0, 0])  # Offset of Detector
+
+        self.geo.accuracy = 0.5  # Accuracy of FWD proj    (vx/sample)
+
+        self.geo.COR = 0
+
+        self.geo.rotDetector = self.values["rotation"]  # Rotation of detector
+
+        return
+
+    def __call__(self):
+        return self.geo
+
+
 class PhantomGeometry:
     def __init__(self, default=True):
-
         if default:
-
             self.values = {
                 "DSD": 1350,  # Distance Source Detector (mm)
                 "DSO": 930,  # Distance Source Origin (mm)
@@ -179,7 +217,6 @@ class TomoBankPhantomCT(ReconstructionsDataCT):
         self.name = name
 
     def reconstruct_target(self, o, f, idx, depth=512, sino=False):
-
         if sino:  # RSD: Ignored for now. Not much to gain.
             angles = np.squeeze(
                 np.array(f[ReconstructionsDataCT.TOMOBANK_ANGLES])
@@ -256,7 +293,6 @@ class TomoBankDataCT(ReconstructionsDataCT):
     def reconstruct_target(
         self, o, f, i, depth=512
     ):  # RSD: Update this due to information included in the files.
-
         data = np.squeeze(f[ReconstructionsDataCT.TOMOBANK_TARGET])
         data = np.broadcast_to(data, (data.shape[0], data.shape[1], depth))
         o[ReconstructionsDataCT.TARGET_KEY].create_dataset(
@@ -356,7 +392,7 @@ class EquinorDynamicCT(EquinorDataCT):
     """
 
     def __init__(self, root, name, o_root, o_name):
-        super().__init__(self, root, name, o_root, o_name)
+        super().__init__(root, name, o_root, o_name)
         return
 
     def reconstruct_noisy(self, o, f, data, idx, n_angles, dyn_slice=True):
@@ -369,6 +405,22 @@ class EquinorDynamicCT(EquinorDataCT):
         angles = np.array(f["angles"])
         # data = np.squeeze(f[ReconstructionsDataCT.EQNR_PROJECTIONS]) #RSD: More to it than that
         pass  # RSD: Not to be used yet.
+
+    def reconstruct_idx(self, idx):
+        listGpuNames = gpu.getGpuNames()
+        gpuids = gpu.getGpuIds(listGpuNames[0])
+
+        with h5py.File(os.path.join(self.root, f"{self.name}.h5"), "r") as f:
+            data = np.squeeze(
+                f[ReconstructionsDataCT.EQNR_PROJECTIONS][str(idx).zfill(5)]
+            )
+            angles = np.squeeze(f[ReconstructionsDataCT.EQNR_ANGLES][str(idx).zfill(5)])
+
+        with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
+            geo = pkl.load(g)
+
+        rec = algs.fdk(data, geo, angles, gpuids=gpuids)
+        return rec
 
     def reconstruct_singles(self):
         pass
@@ -399,9 +451,7 @@ class EquinorReconstructions(ReconstructionsDataCT):
         return None  # Not used for this instance. Complicated, but will probably work.
 
     def reconstruct_target(self, o, f, idx):
-
         try:
-
             dat_file = pd.read_csv(
                 os.path.join(self.root, f"{self.name}.dat"),
                 sep=":",
@@ -422,11 +472,11 @@ class EquinorReconstructions(ReconstructionsDataCT):
             try:
                 with open(path_raw, "rb") as g:
                     data = np.fromfile(g, dtype="uint16")  # .reshape((w, h, d))
-                    data = data.reshape((d,w,h))
+                    data = data.reshape((d, w, h))
             except:
                 with open(path_raw, "rb") as g:
                     data = np.fromfile(g, dtype="uint8")  # .reshape((w, h, d))
-                    data = data.reshape((d,w,h))
+                    data = data.reshape((d, w, h))
 
         except:
             try:
@@ -434,26 +484,22 @@ class EquinorReconstructions(ReconstructionsDataCT):
 
                 data = np.zeros((d, w, h), dtype=np.float32)
                 # RSD: Believe crossection indexed by first index.
-                with nsiefx.open(os.path.join(self.root, f"{self.name}.nsihdr")) as volume:
+                with nsiefx.open(
+                    os.path.join(self.root, f"{self.name}.nsihdr")
+                ) as volume:
                     for slice_idx in range(d):
                         data[slice_idx] = volume.read_slice(slice_idx)
 
-            
-            except: KeyError("Did not find dataset, or unexpected format.")
-        
+            except:
+                KeyError("Did not find dataset, or unexpected format.")
+
         finally:
-        
             o[ReconstructionsDataCT.TARGET_KEY].create_dataset(
-                        f"{str(idx).zfill(5)}", data=data.astype(np.float32)
-                    )
-            return data.astype(np.float32)           
-
-
-
-
+                f"{str(idx).zfill(5)}", data=data.astype(np.float32)
+            )
+            return data.astype(np.float32)
 
     def reconstruct_noisy(self, o, f, data, idx, n_angles, dyn_slice=False):
-
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
@@ -464,7 +510,7 @@ class EquinorReconstructions(ReconstructionsDataCT):
         # Task is to create geo from reconstruction nsipro-file.
         # with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
         #     geo = pkl.load(g)
-        default_geo = PhantomGeometry() #RSD: TEST CASE IMPROVE
+        default_geo = MicroGeometry()
         geo = default_geo()
 
         # geo.nVoxel = np.array([1484, 1484, 1807])
