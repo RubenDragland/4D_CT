@@ -110,12 +110,16 @@ class ReconstructionsDataCT:
 
 
 class MicroGeometry:
+    '''
+    Create Micro Geometry used at Micro-CT Instrument. Issue is that the standard setting uses zoom. 
+    '''
     def __init__(self):
         self.values = {
-            "DSD": 502,  # Distance Source Detector (mm)
+            "DSD": 502, #72  # Distance Source Detector (mm)
             "DSO": 47,  # Distance Source Origin (mm)
-            "nDetector": np.array([1536, 1920]),  # number of pixels (px)
+            "nDetector": np.array([1920, 1536]),  # number of pixels (px)
             "dDetector": np.array([0.127, 0.127]),  # size of each pixel (mm)
+            "dVoxel": np.array([0.01189, 0.01189, 0.01189]), # Effective voxel pitch (mm)
             "rotation": np.array([0, 0, 0]),  # Rotation of detector
         }
 
@@ -131,9 +135,9 @@ class MicroGeometry:
         )  # total size of the detector (mm)
 
         self.geo.nVoxel = np.array(
-            [self.geo.nDetector[1], self.geo.nDetector[0], self.geo.nDetector[0]]
+            [self.geo.nDetector[0], self.geo.nDetector[1], self.geo.nDetector[1]]
         )
-        self.geo.dVoxel = np.repeat(self.geo.dDetector[0], 3)  # size of each voxel
+        self.geo.dVoxel = self.values["dVoxel"]  # size of each voxel
         self.geo.sVoxel = self.geo.dVoxel * self.geo.nVoxel  # total size of the image
 
         self.geo.offOrigin = np.array([0, 0, 0])  # Offset of image from origin (mm)
@@ -494,10 +498,12 @@ class EquinorReconstructions(ReconstructionsDataCT):
                 KeyError("Did not find dataset, or unexpected format.")
 
         finally:
+            data = data.astype(np.float32)
+            data = (data- np.min(data)) / (np.max(data)-np.min(data))
             o[ReconstructionsDataCT.TARGET_KEY].create_dataset(
-                f"{str(idx).zfill(5)}", data=data.astype(np.float32)
+                f"{str(idx).zfill(5)}", data=data
             )
-            return data.astype(np.float32)
+            return data
 
     def reconstruct_noisy(self, o, f, data, idx, n_angles, dyn_slice=False):
         listGpuNames = gpu.getGpuNames()
@@ -511,13 +517,18 @@ class EquinorReconstructions(ReconstructionsDataCT):
         # with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
         #     geo = pkl.load(g)
         default_geo = MicroGeometry()
-        geo = default_geo()
+        geo = default_geo() #tigre.geometry_default() #default_geo()
 
-        # geo.nVoxel = np.array([1484, 1484, 1807])
+        # geo.nVoxel = np.array([1484, 1484, 1807]) #RSD: What order?
         geo.nVoxel = self.dims
+        #geo.nDetector = np.array([self.dims[0], self.dims[1]])
         geo.sVoxel = geo.nVoxel * geo.dVoxel
+        #geo.sDetector = geo.nDetector * geo.dDetector
+
 
         projs = tigre.Ax(data, geo, angles, gpuids=gpuids)
+        plt.imshow(projs[0], cmap="gray")
+        plt.show()
 
         # RSD: Add noise if needed. For now undersampling.
 
