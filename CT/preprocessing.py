@@ -626,5 +626,4 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
 
         self.save_2_h5(data, angles, i)
 
-        # RSD: Plot anything?
         return
