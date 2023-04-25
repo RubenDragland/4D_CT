@@ -12,10 +12,12 @@ parser.add_argument(
     "-oroot", type=str, default="", required=False, help="output root path"
 )
 parser.add_argument("-expname", type=str, required=True, help="Experiment name")
+# parser.add_argument("-oname", type=str, required=True, help="Output name")
 parser.add_argument(
     "-correction", type=str, default="", required=False, help="Path corrections"
 )
 parser.add_argument("-numProj", type=int, default=0, help="number of projections")
+parser.add_argument("-nrevs", type=int, default=20, help="number of revolutions")
 parser.add_argument(
     "-dynamic", type=bool, required=False, default=True, help="Dynamic or static scan"
 )
@@ -59,8 +61,10 @@ if args.dynamic:
         args.root,
         args.expname,
         args.oroot,
+        # args.oname,
         args.numProj,
-        args.correction,
+        nrevs=args.nrevs,
+        correction_parent=args.correction,
         geometry=args.geometry,
         roi=args.roi,
         rotation=args.rot,

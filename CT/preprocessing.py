@@ -12,6 +12,9 @@ import os
 import re
 import tqdm
 
+import tigre.algorithms as algs
+import tigre.utilities.gpu as gpu
+
 """
 Here, we will handle tif files obtained at EQNR.
 Perhaps make it as a class?
@@ -23,10 +26,8 @@ Perhaps make it as a class?
 class IndustrialGeometryEQNR:
     def __init__(
         self, default=True, nsprg=True, **kwargs
-    ):  # RSD: Both nsprg and nspro exist.
-
+    ):  # RSD: Both nsprg and nspro exist. nsprg for now.
         if default:
-
             self.values = {
                 "DSD": 1350,  # Distance Source Detector (mm)
                 "DSO": 930,  # Distance Source Origin (mm)
@@ -36,6 +37,7 @@ class IndustrialGeometryEQNR:
             }
         else:
             # try:
+            print(kwargs["path"])
             self.read_from_file(kwargs["path"])
             # except:
             # raise ValueError("Please provide a path to the file.")
@@ -78,7 +80,6 @@ class IndustrialGeometryEQNR:
         return  # (golden_geometry, self.values)
 
     def read_dict_from_file(self, path):
-
         with open(path, "r") as f:
             data = f.readlines()
             data = [line.strip() for line in data]
@@ -188,9 +189,7 @@ class ProjectionsEQNR:
         name_dark="offset.tif",
         geometry=None,
         roi=None,
-        metallic_mean_n=0,  # RSD: Calculates angles instead of reading from file.
         rotation=0,
-        mod=False,  #  RSD: Not yet implemented
     ):
         self.root = root
         self.exp_name = exp_name
@@ -216,35 +215,29 @@ class ProjectionsEQNR:
             geom_obj = IndustrialGeometryEQNR()
             self.geometry, geom_values = geom_obj.golden_geometry, geom_obj.values
         else:
-            geom_obj = IndustrialGeometryEQNR(default=False, path=geometry)
+            geom_path = os.path.join(self.root, geometry)
+            geom_obj = IndustrialGeometryEQNR(default=False, path=geom_path)
             self.geometry, geom_values = geom_obj.golden_geometry, geom_obj.values
             self.geometry.nDetector = np.array([self.roi[0], self.roi[1]])
-            self.geometry.nVoxel = np.array([self.roi[0], self.roi[0], self.roi[1]])
+            self.geometry.nVoxel = np.array([self.roi[0], self.roi[1], self.roi[1]])
             self.geometry.sVoxel = self.geometry.dVoxel * self.geometry.nVoxel
             self.geometry.sDetector = self.geometry.dDetector * self.geometry.nDetector
 
         self.rotation = geom_values["rotation"] if rotation == 0 else rotation
 
-        self.metallic_mean_n = metallic_mean_n
-        if self.metallic_mean_n:
-            angle_step = (
-                180 * (self.metallic_mean_n + np.sqrt(4 + self.metallic_mean_n**2))
-            ) % 360
-            self.angles = np.arange(
-                0, angle_step * self.number_of_projections, angle_step
-            )
-        else:
-            self.angles = np.linspace(0, 2 * np.pi, self.number_of_projections)
-            # self.angles = self.read_angles(os.path.join(self.root, f"{exp_name}"))
-            # RSD: Check if ok.
+        try:
+            self.angles = self.read_angles(os.path.join(self.root, f"{exp_name}"))
+        except:
+            self.angles = np.linspace(0, 360, self.number_of_projections)
 
         self.projections = None
 
     def __call__(self):
-
         self.projections = np.zeros(
             (self.number_of_projections, self.roi[0], self.roi[1])
         )
+
+        # self.find_centre_rotation() #RSD: Not implemented.
 
         for i, p_root in enumerate(self.p_roots):
             im = self.load_tif(p_root)
@@ -285,7 +278,6 @@ class ProjectionsEQNR:
         ).to_numpy()
 
         for i, (s_index, f_index, one) in enumerate(defect_indices):
-
             kernel = proj[f_index - 1 : f_index + 2, s_index - 1 : s_index + 2]
             proj[f_index, s_index] = nd.median_filter(kernel, size=(3, 3))[1, 1]
 
@@ -297,9 +289,13 @@ class ProjectionsEQNR:
         Keeping center of rotation intact
         """
         shape = proj.shape
-        slice_x = slice(shape[0] // 2 - roi[0] // 2, shape[0] // 2 + roi[0] // 2)
-        slice_y = slice(shape[1] // 2 - roi[1] // 2, shape[1] // 2 + roi[1] // 2)
-        return proj[slice_x, slice_y]
+        slice_y = slice(shape[0] // 2 - roi[0] // 2, shape[0] // 2 + roi[0] // 2)
+        slice_x = slice(
+            shape[1] // 2 + self.hor_offset - roi[1] // 2,
+            shape[1] // 2 + self.hor_offset + roi[1] // 2,
+        )
+        # RSD: horizontal offset is added to the x slice.
+        return proj[slice_y, slice_x]
 
     def rotate_projection(self, proj):
         """
@@ -360,7 +356,6 @@ class ProjectionsEQNR:
         """Visualise processed projection"""
 
         with h5py.File(os.path.join(self.o_root, f"{self.exp_name}.h5"), "r") as f:
-
             data = np.squeeze(np.array(f["projections"][f"{str(idx).zfill(5)}"]))
 
         plt.imshow(
@@ -406,7 +401,9 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         root,
         exp_name,
         o_root,
+        # o_name,
         number_of_projections,
+        nrevs=20,
         correction_parent=None,
         name_flat="gain0.tif",
         name_dark="offset.tif",
@@ -414,7 +411,6 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         roi=None,
         rotation=0,
     ):
-
         super().__init__(
             root,
             exp_name,
@@ -429,8 +425,10 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         )
         # RSD: parent does some unnecessary work. Replace the things that are wrong.
 
+        # self.o_name = o_name  # RSD: NB! Distinction between exp_name and o_name. Static is now obsolete ish.
+
         self.nproj_360 = number_of_projections
-        self.nrevs = 20  # RSD: Change
+        self.nrevs = nrevs
         self.tot_steps = self.nproj_360 * self.nrevs
 
         self.revolution_folders = os.listdir(root)
@@ -449,14 +447,12 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         return
 
     def init_save_h5(self):
-
         geom_root = os.path.join(self.o_root, f"{self.exp_name}.pkl")
         with open(geom_root, "wb+") as g:
             pkl.dump(self.geometry, g)
 
         with h5py.File(os.path.join(self.o_root, f"{self.exp_name}.h5"), "w") as f:
             f.create_group("meta")
-            f["meta"].attrs["metallic_mean_n"] = self.metallic_mean_n
             f["meta"].attrs["rotation"] = self.rotation
             f["meta"].attrs["roi"] = self.roi
             f["meta"].attrs["root"] = self.root
@@ -475,7 +471,6 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
 
     def save_2_h5(self, data, angles, idx):
         with h5py.File(os.path.join(self.o_root, f"{self.exp_name}.h5"), "r+") as f:
-
             f["projections"].create_dataset(f"{str(idx).zfill(5)}", data=data)
             f["angles"].create_dataset(f"{str(idx).zfill(5)}", data=angles)
         return
@@ -489,36 +484,113 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         )
         return
 
-    def __call__(self):
+    def find_filename_path(self, dir, j):
+        """Finds the path to the desired projection image"""
 
+        # idx = re.search(" \d-", dir) #RSD : Already done in __init__()
+        folder_path = os.path.join(self.root, dir)
+        filenames = os.listdir(folder_path)
+
+        file = [item for item in filenames if item.endswith(f"{str(j).zfill(5)}.tif")]
+        assert len(file) == 1
+        "More matches/ Zero matches. Cannot proceed!"
+
+        full_path = os.path.join(folder_path, file[0])
+        return full_path
+
+    def find_centre_rotation(self):
+        """
+        Aligning rotation of projection image.
+
+        NB! Can use COR in TIGRE and then move the image by df amount!!! Adjust the sobel filter. Perhaps retrieve max value instead.
+        """
+
+        listGpuNames = gpu.getGpuNames()
+        gpuids = gpu.getGpuIds(listGpuNames[0])
+
+        path0 = self.find_filename_path(self.revolution_folders[0][1], 0)
+        folder_path = os.path.join(self.root, self.revolution_folders[0][1])
+        angles0 = self.read_angles(folder_path)
+        im0 = self.load_tif(path0)
+        im0 = self.rotate_projection(im0)
+        im0_shape = im0.shape
+        centre_slice = np.zeros(
+            (
+                len(angles0),
+                1,
+                im0_shape[1],
+            )
+        )
+        for j in range(self.nproj_360):
+            full_path = self.find_filename_path(self.revolution_folders[0][1], j)
+            centre_slice[j, :, :] = self.rotate_projection(self.load_tif(full_path))[
+                im0_shape[0] // 2, :
+            ]
+
+        def sharpness_score(Y):  # RSD: Edge in x and y direction. Abs value and sum.
+            Yx = nd.sobel(Y, axis=0)
+            Yy = nd.sobel(Y, axis=1)
+            return np.sum(Yx**2 + Yy**2)
+
+        offset = np.arange(-20, 20)
+        max_score = 0
+        max_offset = 0
+
+        slice_geom = self.geometry
+        slice_geom.nDetector = np.array([1, self.roi[1]])
+        slice_geom.sDetector = slice_geom.nDetector * slice_geom.dDetector
+        slice_geom.nVoxel = np.array([1, self.roi[1], self.roi[1]])
+        slice_geom.sVoxel = slice_geom.nVoxel * slice_geom.dVoxel
+
+        for o, off in enumerate(offset):
+            try:
+                input_slice = centre_slice[
+                    :,
+                    :,
+                    im0_shape[1] // 2
+                    - self.roi[1] // 2
+                    + off : im0_shape[1] // 2
+                    + self.roi[1] // 2
+                    + off,
+                ]
+            # RSD: Issue here if no cropping. Need to fix.
+            except:
+                # Too big roi.
+                pass
+
+            rec = algs.fdk(
+                input_slice,
+                slice_geom,
+                angles0,
+                gpuids=gpuids,
+            )
+            print(rec.shape)
+
+            s_score = sharpness_score(rec[0])
+            if s_score > max_score:
+                max_score = s_score
+                max_offset = off
+
+        print(f"Centre offset: {max_offset}")
+        self.hor_offset = max_offset
+        return
+
+    def __call__(self):
         self.init_save_h5()
+
+        self.find_centre_rotation()
 
         # RSD: Could (should) parallise, but is not frequently used code.
         for i, (d_idx, dir) in enumerate(tqdm.tqdm(self.revolution_folders[:-1])):
-
             assert i == d_idx
             "Revolution folders are not in order!"
 
             data = np.zeros((self.nproj_360, self.roi[0], self.roi[1]))
-
-            # idx = re.search(" \d-", dir) #RSD : Already done in __init__()
             folder_path = os.path.join(self.root, dir)
-            filenames = os.listdir(folder_path)
-
             angles = self.read_angles(folder_path)
 
             for j in range(self.nproj_360):
-
-                file = [
-                    item
-                    for item in filenames
-                    if item.endswith(f"{str(j).zfill(5)}.tif")
-                ]
-                assert len(file) == 1
-                "More matches/ Zero matches. Cannot proceed!"
-
-                full_path = os.path.join(folder_path, file[0])
-
+                full_path = self.find_filename_path(dir, j)
                 im = self.load_tif(full_path)
                 im = self.normalise_projection(im)
                 im = self.remove_defects(im)

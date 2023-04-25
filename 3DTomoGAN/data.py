@@ -83,7 +83,6 @@ advanced_transforms = tio.Compose(
 
 
 class Dataset3D(Dataset):
-
     transforms_dict = {
         "basic": basic_transforms,
         "advanced": advanced_transforms,
@@ -102,7 +101,6 @@ class Dataset3D(Dataset):
         self.target_transform = Dataset3D.transforms_dict["basic"]  # [target_transform]
 
     def __getitem__(self, index):
-
         dimensions = h5py.File(self.root, "r")["noisy3D"][str(index).zfill(5)].shape
 
         crop_centres = self.random_crop_h5py(dimensions, size=128)

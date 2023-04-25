@@ -63,11 +63,12 @@ class Discriminator3DTomoGAN(nn.Module):
             # self.layers.update([f"fc_relu_{i+1}", self.hparams["relu_type"]()])
 
         # self.net = nn.ModuleDict(**self.layers)
+        self.layers.pop(-1)  # Remove last relu
         self.net = nn.Sequential(*self.layers)
+        print(self.net)  # RSD: Remember to check this.
         return
 
     def forward(self, x):
-
         # for v in self.layers:
         #     x = v(x)
         x = self.net(x)
@@ -79,7 +80,6 @@ class Discriminator3DTomoGAN(nn.Module):
         return x
 
     def create_CNNS(self):
-
         C3S1_64 = nn.Conv3d(
             in_channels=self.hparams["in_channels"],
             out_channels=64,
@@ -120,9 +120,7 @@ class Discriminator3DTomoGAN(nn.Module):
             out_channels=4,
             kernel_size=self.hparams["kernel_size"],
             stride=2,
-            padding=self.hparams[
-                "stride2_padding"
-            ],  # RSD: Bug fix. What is the input shape here. Has to be calculated. Possibly give up sequential.
+            padding=self.hparams["stride2_padding"],
         )
 
         return [
@@ -138,7 +136,6 @@ class Discriminator3DTomoGAN(nn.Module):
         # RSD: Not fully sure about the below. How to ensure that the output is 1x1x1?
         # self.hparams["relu_type"](),
         if self.hparams["linear_layers"]:
-
             # RSD: in-features decided by the AvgPool3d layer times 4 channels.
             FC_64 = nn.Linear(
                 in_features=4
@@ -154,7 +151,6 @@ class Discriminator3DTomoGAN(nn.Module):
             )
 
         else:
-
             FC_64 = nn.Conv3d(
                 in_channels=4,
                 out_channels=64,  # RSD; Think this works as FC layer with 64 nodes.

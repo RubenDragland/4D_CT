@@ -34,7 +34,6 @@ def adversarial_loss(fake_output, classification_loss=nn.BCEWithLogitsLoss()):
 
 
 def slice_feature_extraction_loss(feature_extractor, X_perc, Y_perc):
-
     X_perc = torch.unsqueeze(X_perc, 0) if len(X_perc.shape) == 3 else X_perc
     Y_perc = torch.unsqueeze(Y_perc, 0) if len(Y_perc.shape) == 3 else Y_perc
 

@@ -161,10 +161,11 @@ disc_optim = torch.optim.Adam(discriminator.parameters(), lr=args.lrated)
 x_axis = []
 train_loss = []
 val_loss = []
+mse_list = []
+adv_list = []
 
 
 for epoch in range(args.maxiter + 1):
-
     logging.info("\nEpoch: %d" % epoch)
     mem = torch.cuda.mem_get_info()
     logging.info("Begin epoch: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
@@ -176,7 +177,6 @@ for epoch in range(args.maxiter + 1):
     ), "Not enough data to perform desired epoch."
 
     while training_iter + args.itg + args.itd <= len(train_dataloader):
-
         time_git_st = time.time()
 
         gen_optim.zero_grad()
@@ -186,7 +186,6 @@ for epoch in range(args.maxiter + 1):
         generator.requires_grad_(True)
 
         for _ge in range(args.itg):
-
             # RSD: Notice that iterations generator and discriminator are not utilised in this version. Complete the dataloader instead. Will have to check if this works.
             # for _ge, data in enumerate(train_dataloader, 0):
             # Train Generator
@@ -309,6 +308,8 @@ for epoch in range(args.maxiter + 1):
         )
 
         train_loss.append(generator_loss.cpu().detach().numpy())
+        mse_list.append(loss_mse.cpu().detach().numpy().mean() * args.lmse)
+        adv_list.append(loss_adv.cpu().detach().numpy().mean() * args.ladv)
         time_dit_st = time.time()
 
         # Train Discriminator
@@ -325,7 +326,6 @@ for epoch in range(args.maxiter + 1):
 
         # for _de, data in enumerate(train_dataloader, 0):
         for _de in range(args.itd):
-
             training_iter += 1
             # X, Y = data
             X, Y = next(iter(train_dataloader))
@@ -383,7 +383,6 @@ for epoch in range(args.maxiter + 1):
 
     with torch.no_grad():
         for v_ge, val_data in enumerate(val_dataloader, 0):
-
             X, Y = val_data
             X_save = X.clone()
             X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
@@ -452,7 +451,6 @@ for epoch in range(args.maxiter + 1):
 
     with torch.no_grad():
         if epoch % args.saveiter == 0:
-
             Xs = np.squeeze(X[0].cpu().detach().numpy())
             logging.info("Xs max: %s" % str(Xs.max()))
             logging.info("Xs min: %s" % str(Xs.min()))
@@ -480,7 +478,6 @@ for epoch in range(args.maxiter + 1):
 
         # Save model
         if epoch % args.saveiter == 0:
-
             # X, Y = next(iter(val_dataloader))
             Y = np.squeeze(Y[0].cpu().detach().numpy())
             logging.debug(f"Y min {Y.min()} max: {Y.max()}")
@@ -508,8 +505,23 @@ for epoch in range(args.maxiter + 1):
     # Save loss curves
     # Need to plot mse as well.
 
-    plt.plot(train_loss, label="train")
-    plt.plot(x_axis, val_loss, label="validation")
-    plt.legend()
-    plt.savefig("%s/loss.png" % (itr_out_dir))
-    plt.close()
+    try:
+        # Save some data for discussion
+        np.save(np.array(train_loss), "%s/train_loss.npy" % (itr_out_dir))
+        np.save(np.array(val_loss), "%s/val_loss.npy" % (itr_out_dir))
+        np.save(np.array(x_axis), "%s/x_axis.npy" % (itr_out_dir))
+        np.save(np.array(mse_list), "%s/mse_list.npy" % (itr_out_dir))
+        np.save(np.array(adv_list), "%s/adv_list.npy" % (itr_out_dir))
+        np.save(
+            np.array([args.lmse, args.ladv, args.lperc]),
+            "%s/loss_weights.npy" % (itr_out_dir),
+        )
+    except:
+        pass
+
+    finally:
+        plt.plot(train_loss, label="train")
+        plt.plot(x_axis, val_loss, label="validation")
+        plt.legend()
+        plt.savefig("%s/loss.png" % (itr_out_dir))
+        plt.close()

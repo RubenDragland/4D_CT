@@ -9,7 +9,6 @@ import torchio as tio
 
 
 def enhance(model_path, model_name, data_folder, data_name):
-
     # Load model
     model = Generator3DTomoGAN()
     model.load_state_dict(torch.load(os.path.join(model_path, f"{model_name}.pth")))
@@ -23,7 +22,6 @@ def enhance(model_path, model_name, data_folder, data_name):
     # Load data
 
     with h5py.File(os.path.join(data_folder, f"{data_name}.h5"), "r+") as data:
-
         # data.create_group("Enhanced")
 
         # Visualisation
@@ -68,7 +66,6 @@ def enhance(model_path, model_name, data_folder, data_name):
         #     print("Done3")
 
         for i in tqdm.tqdm(range(items)):
-
             rec = torch.from_numpy(np.array(data[key_name][str(i).zfill(5)]))
             # [
             #     sl:-sl, sl:-sl, sl:-sl
@@ -92,7 +89,6 @@ def enhance(model_path, model_name, data_folder, data_name):
             X, Y, Z = X.flatten(), Y.flatten(), Z.flatten()
 
             for j, (xj, yj, zj) in tqdm.tqdm(enumerate(zip(X, Y, Z))):
-
                 rec_dv = rec[:, xj : xj + a, yj : yj + a, zj : zj + a]
 
                 # Enhance
@@ -121,7 +117,6 @@ def enhance(model_path, model_name, data_folder, data_name):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(
         description="3DTomoGAN, load trained model and enhance reconstruction"
     )

@@ -510,7 +510,7 @@ class EquinorReconstructions(ReconstructionsDataCT):
         # Task is to create geo from reconstruction nsipro-file.
         # with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
         #     geo = pkl.load(g)
-        default_geo = MicroGeometry()
+        default_geo = MicroGeometry()  # RSD: Only default atm.
         geo = default_geo()
 
         # geo.nVoxel = np.array([1484, 1484, 1807])
