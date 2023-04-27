@@ -103,7 +103,6 @@ def multiprocess_train_code(
         training_iter = 0
 
         while training_iter + args.itg + args.itd < len(train_dataloader):
-
             gen_optim.zero_grad()
             discriminator.eval()
             discriminator.requires_grad_(False)
@@ -176,7 +175,6 @@ def multiprocess_train_code(
 
 
 if __name__ == "__main__":
-
     parser = parser_args_gym()
 
     args, unparsed = parser.parse_known_args()
@@ -227,9 +225,9 @@ if __name__ == "__main__":
 
     # RSD: Split data into train, val, test
     train_size = int(data_hparams["train_split"] * len(full_dataset))
-    train_size = 6
+    # train_size = 6
     val_size = int(data_hparams["val_split"] * len(full_dataset))
-    val_size = 1
+    # val_size = 1
     test_size = len(full_dataset) - train_size - val_size
     train_set, val_set, test_set = torch.utils.data.random_split(
         full_dataset, [train_size, val_size, test_size]
