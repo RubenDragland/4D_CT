@@ -33,6 +33,13 @@ class ReconstructionsDataCT:
         self.data_name = data_name
         self.full_path = os.path.join(self.data_root, f"{self.data_name}.h5")
 
+        self.methods = {
+            "fdk": algs.fdk,
+            "sirt": algs.sirt,
+            "osem": algs.osem,
+            # RSD: TODO: Add more methods
+        }
+
         # try:
         #     o = h5py.File(self.full_path, "w-")
         # except:
@@ -55,11 +62,13 @@ class ReconstructionsDataCT:
 
         o.close()
 
-    def add_item(self, obj, n_angles=100):
+    def add_item(self, obj, n_angles=100, method="fdk"):
         o = h5py.File(self.full_path, "r+")
         f = obj.read_item(obj)
         data = obj.reconstruct_target(o, f, self.__len__())
-        obj.reconstruct_noisy(o, f, data, self.__len__(), n_angles)
+        obj.reconstruct_noisy(
+            o, f, data, self.__len__(), n_angles=n_angles, method=method
+        )
         f.close()
         o.close()
         return
@@ -71,7 +80,7 @@ class ReconstructionsDataCT:
     def __len__(self):
         return len(h5py.File(self.full_path)[self.NOISY_KEY].keys())
 
-    def process_data(self, objects: list, n_angles=100):
+    def process_data(self, objects: list, n_angles=100, method="fdk"):
         o = h5py.File(self.full_path, "r+")
 
         for i, obj in enumerate(objects):
@@ -79,7 +88,7 @@ class ReconstructionsDataCT:
             # f = h5py.File(os.path.join(obj.root, f"{obj.name}.h5"), "r")
             f = obj.read_item(obj)
             data = obj.reconstruct_target(o, f, index)
-            obj.reconstruct_noisy(o, f, data, index, n_angles)
+            obj.reconstruct_noisy(o, f, data, index, n_angles=n_angles, method=method)
             # f.close() #RSD: Issue for EQNRRec not h5 file.
 
         o.close()
@@ -125,6 +134,15 @@ class TigreGeometry:
         self.geo.nVoxel = np.array(
             [self.geo.nDetector[0], self.geo.nDetector[1], self.geo.nDetector[1]]
         )
+
+        magnification = lambda x: x * self.values["DSO"] / self.values["DSD"]
+        self.values["dVoxel"] = np.array(
+            [
+                magnification(self.values["dDetector"][0]),
+                magnification(self.values["dDetector"][1]),
+                magnification(self.values["dDetector"][1]),
+            ]
+        )
         self.geo.dVoxel = self.values["dVoxel"]  # size of each voxel
         self.geo.sVoxel = self.geo.dVoxel * self.geo.nVoxel  # total size of the image
 
@@ -144,6 +162,16 @@ class TigreGeometry:
     def __call__(self):
         return self.geo
 
+    def set_roi(self, roi):
+        """
+        Possibly needed? But we also read from file?
+        """
+        self.geo.nDetector = np.array([roi[0], roi[1]])
+        self.geo.sDetector = self.geo.dDetector * self.geo.nDetector
+        self.geo.nVoxel = np.array([roi[0], roi[1], roi[1]])
+        self.geo.sVoxel = self.geo.dVoxel * self.geo.nVoxel
+        return
+
 
 class IndustrialGeometry(TigreGeometry):
     """
@@ -161,16 +189,6 @@ class IndustrialGeometry(TigreGeometry):
         }
 
         super().__init__()
-        return
-
-    def set_roi(self, roi):
-        """
-        Possibly needed? But we also read from file?
-        """
-        self.geo.nDetector = np.array([roi[0], roi[1]])
-        self.geo.sDetector = self.geo.dDetector * self.geo.nDetector
-        self.geo.nVoxel = np.array([roi[0], roi[1], roi[1]])
-        self.geo.sVoxel = self.geo.dVoxel * self.geo.nVoxel
         return
 
 
@@ -256,10 +274,11 @@ class TomoBankPhantomCT(ReconstructionsDataCT):
     Creates a dataset for a TomoBank phantom.
     """
 
-    def __init__(self, root, name, o_root, o_name, sino_recon=True):
+    def __init__(self, root, name, o_root, o_name, geo=PhantomGeometry()):
         super().__init__(o_root, o_name)
         self.root = root
         self.name = name
+        self.geo = geo
 
     def reconstruct_target(self, o, f, idx, depth=512, sino=False):
         if sino:  # RSD: Ignored for now. Not much to gain.
@@ -306,8 +325,8 @@ class TomoBankPhantomCT(ReconstructionsDataCT):
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
         angles = np.linspace(0, 2 * np.pi, n_angles, endpoint=False)
-        phantom_geo = PhantomGeometry()
-        geo = phantom_geo()
+        # phantom_geo = PhantomGeometry()
+        geo = self.geo()  # phantom_geo()
 
         projs = tigre.Ax(data, geo, angles, gpuids=gpuids)
 
@@ -391,7 +410,7 @@ class EquinorDataCT(ReconstructionsDataCT):
         return data
 
     def reconstruct_noisy(
-        self, o, f, data, idx, n_angles, wedge_slice=False
+        self, o, f, data, idx, n_angles, wedge_slice=False, method="fdk"
     ):  # RSD: Remember to implement dynamical slice
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
@@ -410,7 +429,8 @@ class EquinorDataCT(ReconstructionsDataCT):
             angles = angles[::slicing]
             data = data[::slicing]
 
-        rec = algs.fdk(data, geo, angles, gpuids=gpuids)
+        # rec = algs.fdk(data, geo, angles, gpuids=gpuids)
+        rec = self.methods[method](data, geo, angles, gpuids=gpuids)
 
         o[ReconstructionsDataCT.NOISY_KEY].create_dataset(
             f"{str(idx).zfill(5)}", data=rec
@@ -428,12 +448,6 @@ class EquinorDynamicCT(EquinorDataCT):
     def __init__(self, root, name, o_root, o_name):
         super().__init__(root, name, o_root, o_name)
 
-        self.methods = {
-            "fdk": algs.fdk,
-            "sirt": algs.sirt,
-            "osem": algs.osem,
-            # RSD: TODO: Add more methods
-        }
         return
 
     def reconstruct_group(self, data, angles, geo, method="fdk"):
@@ -456,7 +470,7 @@ class EquinorDynamicCT(EquinorDataCT):
         rec = self.reconstruct_group(data, angles, geo, method=method)
         return rec
 
-    def make_projection_group(self, idx, fibonacci, method="fdk"):
+    def make_projection_group(self, idx, fibonacci):
         with h5py.File(os.path.join(self.root, f"{self.name}.h5"), "r") as f:
             data = np.squeeze(
                 f[ReconstructionsDataCT.EQNR_PROJECTIONS][str(idx).zfill(5)]
@@ -483,15 +497,23 @@ class EquinorDynamicCT(EquinorDataCT):
     def save_rec_timestamp(self, rec):
         pass
 
-    def reconstruct_singles(self):
+    def reconstruct_singles(self, method="fdk"):
         timestamps = len(
             h5py.File(os.path.join(self.root, f"{self.name}.h5"))[
                 self.EQNR_ANGLES
             ].keys()
         )
+        # RSD: Assumes that the group is empty. Reasonable assumption.
         for idx in range(tqdm.tqdm(timestamps)):
-            rec = self.reconstruct_idx(idx)
-            # self.add_reconstruction(rec, idx) #RSD: TODO: Decide where to save the reconstructions. Own 4D_CT h5 file.
+            rec = self.reconstruct_idx(idx, method=method)
+            self.add_undersampled_rec(rec, idx)
+
+    def add_undersampled_rec(self, rec, idx):
+        with h5py.File(os.path.join(self.o_root, f"{self.o_name}.h5"), "a") as o:
+            o[ReconstructionsDataCT.NOISY_KEY].create_dataset(
+                f"{str(idx).zfill(5)}", data=rec
+            )
+        return
 
     def plot_reconstruction(self, idx):
         pass
@@ -569,7 +591,7 @@ class EquinorReconstructions(ReconstructionsDataCT):
             )
             return data
 
-    def reconstruct_noisy(self, o, f, data, idx, n_angles, dyn_slice=False):
+    def reconstruct_noisy(self, o, f, data, idx, n_angles, method="fdk"):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
@@ -589,7 +611,8 @@ class EquinorReconstructions(ReconstructionsDataCT):
         plt.show()
 
         # RSD: Reconstruction. TODO: Choose algorithm.
-        rec = algs.fdk(projs, geo, angles, gpuids=gpuids)
+        # rec = algs.fdk(projs, geo, angles, gpuids=gpuids)
+        rec = self.methods[method](projs, geo, angles, gpuids=gpuids)
         o[ReconstructionsDataCT.NOISY_KEY].create_dataset(
             f"{str(idx).zfill(5)}", data=rec
         )

@@ -25,7 +25,7 @@ Perhaps make it as a class?
 
 class IndustrialGeometryEQNR:
     def __init__(
-        self, default=True, nsprg=True, **kwargs
+        self, default=True, **kwargs
     ):  # RSD: Both nsprg and nspro exist. nsprg for now.
         if default:
             self.values = {
@@ -33,6 +33,9 @@ class IndustrialGeometryEQNR:
                 "DSO": 930,  # Distance Source Origin (mm)
                 "nDetector": np.array([2048, 2048]),  # number of pixels (px)
                 "dDetector": np.array([0.2, 0.2]),  # size of each pixel (mm)
+                "dVoxel": np.array(
+                    [0.124, 0.124, 0.124]
+                ),  # Effective voxel pitch (mm) TODO: Check and implement reader.
                 "rotation": 0,
             }
         else:
@@ -56,9 +59,7 @@ class IndustrialGeometryEQNR:
         golden_geometry.nVoxel = np.repeat(
             golden_geometry.nDetector[0], 3
         )  # number of voxels
-        golden_geometry.dVoxel = np.repeat(
-            golden_geometry.dDetector[0], 3
-        )  # size of each voxel
+        golden_geometry.dVoxel = self.values["dVoxel"]
         golden_geometry.sVoxel = (
             golden_geometry.dVoxel * golden_geometry.nVoxel
         )  # total size of the image
@@ -75,9 +76,12 @@ class IndustrialGeometryEQNR:
         golden_geometry.rotDetector = np.array([0, 0, 0])  # Rotation of detector
         # golden_geometry.rotDetector = np.array([self.values["rotation"], 0, 0])  # Rotation of detector
 
-        self.golden_geometry = golden_geometry
-        self.values = self.values
+        self.geo = golden_geometry
+        # self.values = self.values
         return  # (golden_geometry, self.values)
+
+    def __call__(self):
+        return self.geo
 
     def read_dict_from_file(self, path):
         with open(path, "r") as f:
@@ -123,6 +127,8 @@ class IndustrialGeometryEQNR:
             "detector_pixel_width": f"{root}Detector/width pixels",
             "detector_pixel_height": f"{root}Detector/height pixels",
             "rotation": f"{root}Detector/rotation description",
+            "ug": f"{root}Ug/ug text",
+            "zoom": f"{root}Ug/zoom factor text",
         }
 
         file_info = self.read_dict_from_file(path)
@@ -146,6 +152,14 @@ class IndustrialGeometryEQNR:
             ),  # size of each pixel (mm)
             "rotation": rotation,
         }
+        magnification = lambda x: x * self.values["DSO"] / self.values["DSD"]
+        self.values["dVoxel"] = np.array(
+            [
+                magnification(self.values["dDetector"][0]),
+                magnification(self.values["dDetector"][1]),
+                magnification(self.values["dDetector"][1]),
+            ]
+        )
         return
 
 
@@ -532,7 +546,10 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
             Yy = nd.sobel(Y, axis=1)
             return np.sum(Yx**2 + Yy**2)
 
-        offset = np.arange(-20, 20)
+        # RSD: Or sum or max value. Possibly mean? Then sum should work as well.
+
+        offset = np.linspace(-10, 10, 41)
+        # np.arange(-20, 20) Make even more subpixel. TODO: Golden ratio search.
         max_score = 0
         max_offset = 0
 
@@ -543,28 +560,28 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         slice_geom.sVoxel = slice_geom.nVoxel * slice_geom.dVoxel
 
         for o, off in enumerate(offset):
-            try:
-                input_slice = centre_slice[
-                    :,
-                    :,
-                    im0_shape[1] // 2
-                    - self.roi[1] // 2
-                    + off : im0_shape[1] // 2
-                    + self.roi[1] // 2
-                    + off,
-                ]
-            # RSD: Issue here if no cropping. Need to fix.
-            except:
-                # Too big roi.
-                pass
+            # try:
+            #     input_slice = centre_slice[
+            #         :,
+            #         :,
+            #         im0_shape[1] // 2
+            #         - self.roi[1] // 2
+            #         + off : im0_shape[1] // 2
+            #         + self.roi[1] // 2
+            #         + off,
+            #     ]
+            # # RSD: Issue here if no cropping. Need to fix.
+            # except:
+            #     # Too big roi.
+            #     pass
+            slice_geom.COR = np.array([off, 0, 0])
 
             rec = algs.fdk(
-                input_slice,
+                centre_slice,  # input_slice,
                 slice_geom,
                 angles0,
                 gpuids=gpuids,
             )
-            print(rec.shape)
 
             s_score = sharpness_score(rec[0])
             if s_score > max_score:
@@ -573,6 +590,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
 
         print(f"Centre offset: {max_offset}")
         self.hor_offset = max_offset
+        self.geometry.COR = np.array([max_offset, 0, 0])
         return
 
     def __call__(self):
