@@ -251,7 +251,7 @@ class ProjectionsEQNR:
             (self.number_of_projections, self.roi[0], self.roi[1])
         )
 
-        # self.find_centre_rotation() #RSD: Not implemented.
+        self.find_centre_rotation()  # RSD: Not implemented correctly
 
         for i, p_root in enumerate(self.p_roots):
             im = self.load_tif(p_root)
