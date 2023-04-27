@@ -36,7 +36,7 @@ class ReconstructionsDataCT:
         self.methods = {
             "fdk": algs.fdk,
             "sirt": algs.sirt,
-            "osem": algs.osem,
+            # "osem": algs.osem,
             # RSD: TODO: Add more methods
         }
 

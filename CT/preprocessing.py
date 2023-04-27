@@ -231,7 +231,7 @@ class ProjectionsEQNR:
         else:
             geom_path = os.path.join(self.root, geometry)
             geom_obj = IndustrialGeometryEQNR(default=False, path=geom_path)
-            self.geometry, geom_values = geom_obj.golden_geometry, geom_obj.values
+            self.geometry, geom_values = geom_obj.geo, geom_obj.values
             self.geometry.nDetector = np.array([self.roi[0], self.roi[1]])
             self.geometry.nVoxel = np.array([self.roi[0], self.roi[1], self.roi[1]])
             self.geometry.sVoxel = self.geometry.dVoxel * self.geometry.nVoxel
@@ -305,10 +305,10 @@ class ProjectionsEQNR:
         shape = proj.shape
         slice_y = slice(shape[0] // 2 - roi[0] // 2, shape[0] // 2 + roi[0] // 2)
         slice_x = slice(
-            shape[1] // 2 + self.hor_offset - roi[1] // 2,
-            shape[1] // 2 + self.hor_offset + roi[1] // 2,
+            shape[1] // 2 - roi[1] // 2,
+            shape[1] // 2 + roi[1] // 2,
         )
-        # RSD: horizontal offset is added to the x slice.
+        # RSD: horizontal offset is added to the x slice. But should it when COR determined? Removed
         return proj[slice_y, slice_x]
 
     def rotate_projection(self, proj):
@@ -444,6 +444,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         self.nproj_360 = number_of_projections
         self.nrevs = nrevs
         self.tot_steps = self.nproj_360 * self.nrevs
+        self.hor_offset = 0  # RSD: horizontal offset is added to the x slice.
 
         self.revolution_folders = os.listdir(root)
         self.revolution_folders = [
@@ -528,25 +529,27 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         im0 = self.load_tif(path0)
         im0 = self.rotate_projection(im0)
         im0_shape = im0.shape
+        im0 = self.crop_roi(im0, self.roi)
         centre_slice = np.zeros(
             (
                 len(angles0),
                 1,
-                im0_shape[1],
+                self.roi[1],
             )
         )
         for j in range(self.nproj_360):
             full_path = self.find_filename_path(self.revolution_folders[0][1], j)
             centre_slice[j, :, :] = self.rotate_projection(self.load_tif(full_path))[
-                im0_shape[0] // 2, :
+                im0_shape[0] // 2,
+                im0_shape[1] // 2
+                - self.roi[1] // 2 : im0_shape[1] // 2
+                + self.roi[1] // 2,
             ]
 
         def sharpness_score(Y):  # RSD: Edge in x and y direction. Abs value and sum.
             Yx = nd.sobel(Y, axis=0)
             Yy = nd.sobel(Y, axis=1)
             return np.sum(Yx**2 + Yy**2)
-
-        # RSD: Or sum or max value. Possibly mean? Then sum should work as well.
 
         offset = np.linspace(-10, 10, 41)
         # np.arange(-20, 20) Make even more subpixel. TODO: Golden ratio search.
@@ -560,21 +563,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         slice_geom.sVoxel = slice_geom.nVoxel * slice_geom.dVoxel
 
         for o, off in enumerate(offset):
-            # try:
-            #     input_slice = centre_slice[
-            #         :,
-            #         :,
-            #         im0_shape[1] // 2
-            #         - self.roi[1] // 2
-            #         + off : im0_shape[1] // 2
-            #         + self.roi[1] // 2
-            #         + off,
-            #     ]
-            # # RSD: Issue here if no cropping. Need to fix.
-            # except:
-            #     # Too big roi.
-            #     pass
-            slice_geom.COR = np.array([off, 0, 0])
+            slice_geom.COR = off  # np.array([off, 0, 0])
 
             rec = algs.fdk(
                 centre_slice,  # input_slice,
@@ -590,7 +579,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
 
         print(f"Centre offset: {max_offset}")
         self.hor_offset = max_offset
-        self.geometry.COR = np.array([max_offset, 0, 0])
+        self.geometry.COR = max_offset  # np.array([max_offset, 0, 0])
         return
 
     def __call__(self):
