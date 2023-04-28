@@ -55,6 +55,9 @@ if args.geometry == "":
 if args.roi == 0:
     args.roi = None
 
+print(args.roi)
+print(type(args.roi))
+
 if args.dynamic:
     print("Dynamic scan")
     preprocess = DynamicProjectionsEQNR(

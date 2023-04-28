@@ -56,9 +56,7 @@ class IndustrialGeometryEQNR:
             golden_geometry.dDetector * golden_geometry.nDetector
         )  # total size of the detector (mm)
 
-        golden_geometry.nVoxel = np.repeat(
-            golden_geometry.nDetector[0], 3
-        )  # number of voxels
+        golden_geometry.nVoxel = np.array([golden_geometry.nDetector[0], golden_geometry.nDetector[1], golden_geometry.nDetector[1]]) # number of voxels
         golden_geometry.dVoxel = self.values["dVoxel"]
         golden_geometry.sVoxel = (
             golden_geometry.dVoxel * golden_geometry.nVoxel
@@ -523,35 +521,59 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
-        path0 = self.find_filename_path(self.revolution_folders[0][1], 0)
-        folder_path = os.path.join(self.root, self.revolution_folders[0][1])
-        angles0 = self.read_angles(folder_path)
-        im0 = self.load_tif(path0)
-        im0 = self.rotate_projection(im0)
-        im0_shape = im0.shape
-        im0 = self.crop_roi(im0, self.roi)
-        centre_slice = np.zeros(
-            (
-                len(angles0),
-                1,
-                self.roi[1],
-            )
-        )
-        for j in range(self.nproj_360):
-            full_path = self.find_filename_path(self.revolution_folders[0][1], j)
-            centre_slice[j, :, :] = self.rotate_projection(self.load_tif(full_path))[
-                im0_shape[0] // 2,
-                im0_shape[1] // 2
-                - self.roi[1] // 2 : im0_shape[1] // 2
-                + self.roi[1] // 2,
-            ]
+        angles= np.zeros(self.nproj_360*self.nrevs)
+        centre_slice = np.zeros((self.nproj_360*self.nrevs, self.roi[1]))
+        
+
+        for i in tqdm.trange(self.nrevs):
+
+            folder_path = os.path.join(self.root, self.revolution_folders[i][1])
+            angles[i*self.nproj_360: (i+1)*self.nproj_360  ] = self.read_angles(folder_path)
+
+            for j in range(self.nproj_360):
+                
+                full_path = self.find_filename_path(self.revolution_folders[i][1], j)
+
+                im = self.load_tif(full_path)
+                im0_shape = im.shape
+                im = self.rotate_projection(im)[im0_shape[0] // 2,im0_shape[1] // 2- self.roi[1] // 2 : im0_shape[1] // 2+ self.roi[1] // 2,]
+
+                centre_slice[i*self.nproj_360 + j] = im
+
+                
+                
+        centre_slice = centre_slice[:,np.newaxis,:]
+
+
+        # path0 = self.find_filename_path(self.revolution_folders[0][1], 0)
+        # folder_path = os.path.join(self.root, self.revolution_folders[0][1])
+        # angles0 = self.read_angles(folder_path)
+        # im0 = self.load_tif(path0)
+        # im0 = self.rotate_projection(im0)
+        # im0_shape = im0.shape
+        # im0 = self.crop_roi(im0, self.roi)
+        # centre_slice = np.zeros(
+        #     (
+        #         len(angles0),
+        #         1,
+        #         self.roi[1],
+        #     )
+        # )
+        # for j in range(self.nproj_360):
+        #     full_path = self.find_filename_path(self.revolution_folders[0][1], j)
+        #     centre_slice[j, :, :] = self.rotate_projection(self.load_tif(full_path))[
+        #         im0_shape[0] // 2,
+        #         im0_shape[1] // 2
+        #         - self.roi[1] // 2 : im0_shape[1] // 2
+        #         + self.roi[1] // 2,
+        #     ]
 
         def sharpness_score(Y):  # RSD: Edge in x and y direction. Abs value and sum.
             Yx = nd.sobel(Y, axis=0)
             Yy = nd.sobel(Y, axis=1)
-            return np.sum(Yx**2 + Yy**2)
+            return np.max(Yx**2 + Yy**2)
 
-        offset = np.linspace(-10, 10, 41)
+        offset = np.linspace(-20, 20, 201)
         # np.arange(-20, 20) Make even more subpixel. TODO: Golden ratio search.
         max_score = 0
         max_offset = 0
@@ -562,13 +584,13 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         slice_geom.nVoxel = np.array([1, self.roi[1], self.roi[1]])
         slice_geom.sVoxel = slice_geom.nVoxel * slice_geom.dVoxel
 
-        for o, off in enumerate(offset):
+        for o, off in enumerate(tqdm.tqdm(offset)):
             slice_geom.COR = off  # np.array([off, 0, 0])
 
             rec = algs.fdk(
                 centre_slice,  # input_slice,
                 slice_geom,
-                angles0,
+                angles,
                 gpuids=gpuids,
             )
 
@@ -580,12 +602,12 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         print(f"Centre offset: {max_offset}")
         self.hor_offset = max_offset
         self.geometry.COR = max_offset  # np.array([max_offset, 0, 0])
-        return
+        return max_offset
 
     def __call__(self):
         self.init_save_h5()
 
-        self.find_centre_rotation()
+        # self.find_centre_rotation() # RSD: TODO: Redo. Make this a separate task so that it may be skipped if it is known.
 
         # RSD: Could (should) parallise, but is not frequently used code.
         for i, (d_idx, dir) in enumerate(tqdm.tqdm(self.revolution_folders[:-1])):

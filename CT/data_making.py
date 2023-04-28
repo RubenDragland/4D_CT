@@ -596,7 +596,8 @@ class EquinorReconstructions(ReconstructionsDataCT):
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
         n_angles = n_angles  # np.random.randint(45, 200)  # RSD: How many projections?
-        angles = np.linspace(0, 2 * np.pi, n_angles, endpoint=False)
+        angles = np.linspace(0, 2 * np.pi, n_angles, endpoint=False) 
+        #RSD: TODO: Should be distributed as Golden Ratio?
 
         default_geo = MicroGeometry()
         geo = default_geo()
