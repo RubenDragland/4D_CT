@@ -11,6 +11,7 @@ import pickle as pkl
 import os
 import re
 import tqdm
+import copy
 
 import tigre.algorithms as algs
 import tigre.utilities.gpu as gpu
@@ -240,6 +241,7 @@ class ProjectionsEQNR:
         try:
             self.angles = self.read_angles(os.path.join(self.root, f"{exp_name}"))
         except:
+            print("Except when reading angles!!!")
             self.angles = np.linspace(0, 360, self.number_of_projections)
 
         self.projections = None
@@ -275,7 +277,7 @@ class ProjectionsEQNR:
         flat = self.load_tif(os.path.join(self.correction_parent, self.name_flat))
         dark = self.load_tif(os.path.join(self.correction_parent, self.name_dark))
         proj = (proj - dark) / (tol + flat - dark)
-        proj = 1 - np.clip(proj, 0, 1)
+        proj = 1 - np.clip(proj, 0, 1) # TODO: Consider to remove this clipping
         return proj
 
     def remove_defects(self, proj):
@@ -306,7 +308,6 @@ class ProjectionsEQNR:
             shape[1] // 2 - roi[1] // 2,
             shape[1] // 2 + roi[1] // 2,
         )
-        # RSD: horizontal offset is added to the x slice. But should it when COR determined? Removed
         return proj[slice_y, slice_x]
 
     def rotate_projection(self, proj):
@@ -333,6 +334,11 @@ class ProjectionsEQNR:
         assert angles.dtype == np.float64
         "Wrong conversion. See read_angles(self)"
         return angles
+    
+    # def set_final_geometry(self): RSD: Deep copy instead. should not be necessary
+
+    #     self.geometry.nDetector = np.array([self.roi[0], self.roi[1]])
+
 
     def save_h5(self):
         """Saving projections as h5 file with geometry data for reconstruction"""
@@ -545,29 +551,6 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         centre_slice = centre_slice[:,np.newaxis,:]
 
 
-        # path0 = self.find_filename_path(self.revolution_folders[0][1], 0)
-        # folder_path = os.path.join(self.root, self.revolution_folders[0][1])
-        # angles0 = self.read_angles(folder_path)
-        # im0 = self.load_tif(path0)
-        # im0 = self.rotate_projection(im0)
-        # im0_shape = im0.shape
-        # im0 = self.crop_roi(im0, self.roi)
-        # centre_slice = np.zeros(
-        #     (
-        #         len(angles0),
-        #         1,
-        #         self.roi[1],
-        #     )
-        # )
-        # for j in range(self.nproj_360):
-        #     full_path = self.find_filename_path(self.revolution_folders[0][1], j)
-        #     centre_slice[j, :, :] = self.rotate_projection(self.load_tif(full_path))[
-        #         im0_shape[0] // 2,
-        #         im0_shape[1] // 2
-        #         - self.roi[1] // 2 : im0_shape[1] // 2
-        #         + self.roi[1] // 2,
-        #     ]
-
         def sharpness_score(Y):  # RSD: Edge in x and y direction. Abs value and sum.
             Yx = nd.sobel(Y, axis=0)
             Yy = nd.sobel(Y, axis=1)
@@ -578,7 +561,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         max_score = 0
         max_offset = 0
 
-        slice_geom = self.geometry
+        slice_geom = copy.deepcopy(self.geometry)
         slice_geom.nDetector = np.array([1, self.roi[1]])
         slice_geom.sDetector = slice_geom.nDetector * slice_geom.dDetector
         slice_geom.nVoxel = np.array([1, self.roi[1], self.roi[1]])

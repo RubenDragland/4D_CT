@@ -114,7 +114,7 @@ def calc_ssim(I, J, c1=0.01**2, c2=0.03**2):
     ssim = (
         (2 * mean_I * mean_J + c1)
         * (2 * cov_IJ + c2)
-        / ((mean_I**2 + mean_J**2 + c1) * (var_I**2 + var_J**2 + c2))
+        / ((mean_I**2 + mean_J**2 + c1) * (var_I + var_J + c2))
     )
     return ssim
 
