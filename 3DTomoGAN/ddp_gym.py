@@ -33,7 +33,7 @@ def multiprocess_train_code(
     """DDP training code. Distributes data and models across gpus. Performs processes."""
 
     torch.distributed.init_process_group(
-        backend="nccl",
+        backend="gloo",#"nccl",
         rank=rank,
         world_size=num_gpus,
         init_method="env://",

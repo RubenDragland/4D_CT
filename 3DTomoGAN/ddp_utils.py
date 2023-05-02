@@ -7,6 +7,7 @@ import utils
 import os
 import sys
 import time
+import matplotlib.pyplot as plt
 
 
 def init_data(d_set, b_size, num_gpus):
@@ -268,6 +269,11 @@ def save_checkpoint(X, args, epoch, itr_out_dir, generator, val_dataloader, rank
         utils.save2img(Xs[slice, :, :], "%s/it%05d_x.png" % (itr_out_dir, epoch))
         utils.save2img(Xs[:, slice, :], "%s/it%05d_y.png" % (itr_out_dir, epoch))
         utils.save2img(Xs[:, :, slice], "%s/it%05d_z.png" % (itr_out_dir, epoch))
+
+        plt.imshow(Xs[slice, :, :])
+        plt.colorbar()
+        plt.savefig("%s/it%05d_x_plot.png" % (itr_out_dir, epoch))
+        plt.close()
 
         # RSD: Generator.module because distributed.
         torch.save(

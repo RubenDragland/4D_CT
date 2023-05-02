@@ -95,7 +95,7 @@ class Dataset3D(Dataset):
         transform=None,  # transforms.Compose([transforms.ToTensor()]),
         target_transform=None,  # transforms.Compose([transforms.ToTensor()]),
     ):
-        self.root = os.path.join(img_dir_root, filename)  # Change so h5 is implied
+        self.root = os.path.join(img_dir_root, f"{filename}.h5") 
         self.filename = filename
         self.transform = Dataset3D.transforms_dict["basic"]  # [transform]
         self.target_transform = Dataset3D.transforms_dict["basic"]  # [target_transform]

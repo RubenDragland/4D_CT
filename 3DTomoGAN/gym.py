@@ -93,7 +93,7 @@ logging.info("Device: %s" % device)
 
 if args.hparams_file == "0":
     hparams = None  # {}  # RSD: Fix this
-    data_hparams = {"train_split": 0.75, "val_split": 0.25, "test_split": 0.0}
+    data_hparams = {"train_split": 0.90, "val_split": 0.10, "test_split": 0.0}
 else:
     hparams = torch.load(args.hparams_file)
     # RSD: Need some fixing.
@@ -163,6 +163,8 @@ train_loss = []
 val_loss = []
 mse_list = []
 adv_list = []
+ssim_list = []
+psnr_list = []
 
 
 for epoch in range(args.maxiter + 1):
@@ -378,8 +380,6 @@ for epoch in range(args.maxiter + 1):
     validation_loss = 0
     ssim_loss = 0
     psnr_loss = 0
-    # ssim = SSIM(data_range=1.0)
-    # psnr = PSNR(data_range=1.0)
 
     with torch.no_grad():
         for v_ge, val_data in enumerate(val_dataloader, 0):
@@ -441,13 +441,24 @@ for epoch in range(args.maxiter + 1):
             )
 
             validation_loss += generator_loss.cpu().detach().numpy().mean()
+            ssim_loss += utils.calc_ssim(Y.cpu().detach().numpy(), X.cpu().detach().numpy() )
+            psnr_loss += utils.calc_psnr(Y.cpu().detach().numpy(), X.cpu().detach().numpy() )
 
     print(
         "\n[Info] Epoch: %05d, Validation loss: %.2f \n"
         % (epoch, validation_loss / len(val_dataloader))
     )  # RSD ++ Accuracy or PSNR or SSIM
+    print(
+        "[Info] Epoch: %05d, Validation ssim: %.2f \n"
+        % (epoch, ssim_loss / len(val_dataloader))
+    ) 
+
+    logging.info(f"Validation ssim: {ssim_loss/len(val_dataloader)}")
+
     x_axis.append(len(train_loss))
     val_loss.append(validation_loss / len(val_dataloader))
+    ssim_list.append(ssim_loss / len(val_dataloader))
+    psnr_list.append(psnr_loss/len(val_dataloader))
 
     with torch.no_grad():
         if epoch % args.saveiter == 0:
@@ -507,15 +518,12 @@ for epoch in range(args.maxiter + 1):
 
     try:
         # Save some data for discussion
-        np.save(np.array(train_loss), "%s/train_loss.npy" % (itr_out_dir))
-        np.save(np.array(val_loss), "%s/val_loss.npy" % (itr_out_dir))
-        np.save(np.array(x_axis), "%s/x_axis.npy" % (itr_out_dir))
-        np.save(np.array(mse_list), "%s/mse_list.npy" % (itr_out_dir))
-        np.save(np.array(adv_list), "%s/adv_list.npy" % (itr_out_dir))
-        np.save(
-            np.array([args.lmse, args.ladv, args.lperc]),
-            "%s/loss_weights.npy" % (itr_out_dir),
-        )
+        np.save( "%s/train_loss.npy" % (itr_out_dir), np.array(train_loss))
+        np.save( "%s/val_loss.npy" % (itr_out_dir), np.array(val_loss))
+        np.save( "%s/x_axis.npy" % (itr_out_dir), np.array(x_axis))
+        np.save( "%s/mse_list.npy" % (itr_out_dir), np.array(mse_list))
+        np.save( "%s/adv_list.npy" % (itr_out_dir), np.array(adv_list))
+        np.save( "%s/loss_weights.npy" % (itr_out_dir), np.array([args.lmse, args.ladv, args.lperc]))
     except:
         pass
 
