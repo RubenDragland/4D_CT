@@ -97,3 +97,30 @@ def save2img(d_img, fn):
 
     img = img.astype("uint8")
     imageio.imwrite(fn, img)
+
+
+def calc_ssim(I, J, c1=0.01**2, c2=0.03**2):
+    mean_I = np.mean(I)
+    mean_J = np.mean(J)
+
+    var_I = np.var(I)
+    var_J = np.var(J)
+
+    cov_IJ = np.mean(I * J) - mean_I * mean_J
+    print(cov_IJ)
+    cov_IJ = np.mean((I - mean_I) * (J - mean_J))
+    print(cov_IJ)
+
+    ssim = (
+        (2 * mean_I * mean_J + c1)
+        * (2 * cov_IJ + c2)
+        / ((mean_I**2 + mean_J**2 + c1) * (var_I**2 + var_J**2 + c2))
+    )
+    return ssim
+
+
+def calc_psnr(I, J):
+    mse = np.mean((I - J) ** 2)
+    max_val = np.max(I)
+    psnr = 10 * np.log10(max_val**2 / mse)
+    return psnr
