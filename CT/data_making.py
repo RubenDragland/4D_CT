@@ -487,6 +487,10 @@ class EquinorDynamicCT(EquinorDataCT):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
+        #RSD: Consider to sort projections ???
+        # angle_indices = np.argsort(angles)
+        # data = data[angle_indices]
+
         rec = self.methods[method](data, geo, angles, gpuids=gpuids)
         return rec
 
