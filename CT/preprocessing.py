@@ -239,7 +239,7 @@ class ProjectionsEQNR:
         self.rotation = geom_values["rotation"] if rotation == 0 else rotation
 
         try:
-            self.angles = self.read_angles(os.path.join(self.root, f"{exp_name}"))
+            self.angles = self.read_angles(os.path.join(self.root, f"{exp_name}")) #TODO: Has to be wrong angles
         except:
             print("Except when reading angles!!!")
             self.angles = np.linspace(0, 360, self.number_of_projections)

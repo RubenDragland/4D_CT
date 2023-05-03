@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 # from ignite.metrics import SSIM, PSNR
 import numpy as np
 import logging
+import json
 
 # RSD: Profiling
 from torch.profiler import profile, record_function, ProfilerActivity, schedule
@@ -84,7 +85,6 @@ if args.print == 0:
 device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )  # RSD: For one gpu
-# RSD: more work if more gpus.
 # device = torch.device("cpu")  # RSD: Because of memory.
 
 logging.info("Device: %s" % device)
@@ -95,14 +95,27 @@ if args.hparams_file == "0":
     hparams = None  # {}  # RSD: Fix this
     data_hparams = {"train_split": 0.90, "val_split": 0.10, "test_split": 0.0}
 else:
-    hparams = torch.load(args.hparams_file)
+    # hparams = torch.load(args.hparams_file)
+    my_path = os.path.abspath(os.path.dirname(__file__))
+    with open(os.path.join(my_path, "hparams", f"{args.hparams_file}.json"), "r") as d:
+        hparams = json.load(d)
+        data_hparams = {"train_split": hparams["train_split"], "val_split": 1- hparams["train_split"], "test_split": 0.0}
     # RSD: Need some fixing.
 
 # load data
 mem = torch.cuda.mem_get_info()
 logging.info("Before loading: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
-full_dataset = Dataset3D(args.dsfn, args.dsfolder)  # RSD: Include hparams. First test.
+full_dataset = Dataset3D(args.dsfn, args.dsfolder, hparams)  # RSD: Include hparams. First test.
+
+
+args.lrateg = hparams["lrateg"]
+args.lrated = hparams["lrated"]
+args.mbsz = hparams["mbsz"]
+args.lmse = hparams["lmse"]
+args.ladv = hparams["ladv"]
+args.itg = hparams["itg"]
+args.itd = hparams["itd"]
 
 
 # RSD: Split data into train, val, test
@@ -122,8 +135,8 @@ logging.info("After Splitting: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 # RSD: Temp reduction of data size due to debugging.
 
 # RSD: Enable shuffling later.
-train_dataloader = DataLoader(train_set, batch_size=args.mbsz, shuffle=False)
-val_dataloader = DataLoader(val_set, batch_size=val_size, shuffle=False)
+train_dataloader = DataLoader(train_set, batch_size=args.mbsz, shuffle=True)
+val_dataloader = DataLoader(val_set, batch_size=val_size, shuffle=True)
 # RSD: Should save test_set to file for testing later.
 torch.save(test_set, rf"{itr_out_dir}\test_set.pt")
 
@@ -152,6 +165,8 @@ feature_extractor.requires_grad_(False)
 
 mem = torch.cuda.mem_get_info()
 logging.info("Loaded perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
+
+
 
 # Define optimizers
 

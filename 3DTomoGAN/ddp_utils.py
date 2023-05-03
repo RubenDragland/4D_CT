@@ -71,34 +71,34 @@ def generator_loop(
 
         perc_loss = 0
 
-        perc_loss += utils.perc_slice_loop(
-            feature_extractor,
-            utils.perc_indexer_x,
-            feature_preprocess,
-            X,
-            Y,
-            X.shape[2],
-        )
-        perc_loss += utils.perc_slice_loop(
-            feature_extractor,
-            utils.perc_indexer_y,
-            feature_preprocess,
-            X,
-            Y,
-            X.shape[3],
-        )
-        perc_loss += utils.perc_slice_loop(
-            feature_extractor,
-            utils.perc_indexer_z,
-            feature_preprocess,
-            X,
-            Y,
-            X.shape[4],
-        )
+        # perc_loss += utils.perc_slice_loop(
+        #     feature_extractor,
+        #     utils.perc_indexer_x,
+        #     feature_preprocess,
+        #     X,
+        #     Y,
+        #     X.shape[2],
+        # )
+        # perc_loss += utils.perc_slice_loop(
+        #     feature_extractor,
+        #     utils.perc_indexer_y,
+        #     feature_preprocess,
+        #     X,
+        #     Y,
+        #     X.shape[3],
+        # )
+        # perc_loss += utils.perc_slice_loop(
+        #     feature_extractor,
+        #     utils.perc_indexer_z,
+        #     feature_preprocess,
+        #     X,
+        #     Y,
+        #     X.shape[4],
+        # )
 
         mem = torch.cuda.mem_get_info()
 
-    logging.info("Perc loss: %f" % perc_loss)
+    # logging.info("Perc loss: %f" % perc_loss)
     logging.debug("After Gen: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
     generator_loss = (
@@ -117,7 +117,7 @@ def generator_loop(
             generator_loss.cpu().detach().numpy(),
             loss_mse.cpu().detach().numpy().mean() * args.lmse,
             loss_adv.cpu().detach().numpy().mean() * args.ladv,
-            perc_loss.cpu().detach().numpy().mean() * args.lperc,
+            0,#perc_loss.cpu().detach().numpy().mean() * args.lperc,
         )
     )
 
@@ -213,30 +213,30 @@ def validation_loop(
 
         perc_loss = 0
 
-        perc_loss += utils.perc_slice_loop(
-            feature_extractor,
-            utils.perc_indexer_x,
-            feature_preprocess,
-            X,
-            Y,
-            X.shape[2],
-        )
-        perc_loss += utils.perc_slice_loop(
-            feature_extractor,
-            utils.perc_indexer_y,
-            feature_preprocess,
-            X,
-            Y,
-            X.shape[3],
-        )
-        perc_loss += utils.perc_slice_loop(
-            feature_extractor,
-            utils.perc_indexer_z,
-            feature_preprocess,
-            X,
-            Y,
-            X.shape[4],
-        )
+        # perc_loss += utils.perc_slice_loop(
+        #     feature_extractor,
+        #     utils.perc_indexer_x,
+        #     feature_preprocess,
+        #     X,
+        #     Y,
+        #     X.shape[2],
+        # )
+        # perc_loss += utils.perc_slice_loop(
+        #     feature_extractor,
+        #     utils.perc_indexer_y,
+        #     feature_preprocess,
+        #     X,
+        #     Y,
+        #     X.shape[3],
+        # )
+        # perc_loss += utils.perc_slice_loop(
+        #     feature_extractor,
+        #     utils.perc_indexer_z,
+        #     feature_preprocess,
+        #     X,
+        #     Y,
+        #     X.shape[4],
+        # )
 
         generator_loss = (
             args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
@@ -249,10 +249,10 @@ def validation_loop(
             "\n[Info] Epoch: %05d, Validation loss: %.2f \n"
             % (epoch, validation_loss / len(val_dataloader))
         )
-    return X
+    return X, Y
 
 
-def save_checkpoint(X, args, epoch, itr_out_dir, generator, val_dataloader, rank):
+def save_checkpoint(X, Y, args, epoch, itr_out_dir, generator, val_dataloader, rank):
     """Saves the model and some images."""
     if epoch % args.saveiter == 0 and rank == 0:
 
@@ -283,9 +283,9 @@ def save_checkpoint(X, args, epoch, itr_out_dir, generator, val_dataloader, rank
         del Xs
 
     # Save model
-    if epoch == 0 and rank == 0:
+    # if epoch == 0 and rank == 0:
 
-        X, Y = next(iter(val_dataloader))
+        # X, Y = next(iter(val_dataloader))
         Y = np.squeeze(Y[0].cpu().detach().numpy())
         logging.debug(f"Y min {Y.min()} max: {Y.max()}")
         slice = Y.shape[0] // 2
@@ -293,9 +293,9 @@ def save_checkpoint(X, args, epoch, itr_out_dir, generator, val_dataloader, rank
         utils.save2img(Y[:, slice, :], "%s/gt%05d_y.png" % (itr_out_dir, epoch))
         utils.save2img(Y[:, :, slice], "%s/gt%05d_z.png" % (itr_out_dir, epoch))
 
-        X = np.squeeze(X[0].cpu().detach().numpy())
-        logging.debug(f"X min {X.min()} max: {X.max()}")
-        slice = Y.shape[0] // 2
-        utils.save2img(X[slice, :, :], "%s/in%05d_x.png" % (itr_out_dir, epoch))
-        utils.save2img(X[:, slice, :], "%s/in%05d_y.png" % (itr_out_dir, epoch))
-        utils.save2img(X[:, :, slice], "%s/in%05d_z.png" % (itr_out_dir, epoch))
+        # X = np.squeeze(X[0].cpu().detach().numpy())
+        # logging.debug(f"X min {X.min()} max: {X.max()}")
+        # slice = Y.shape[0] // 2
+        # utils.save2img(X[slice, :, :], "%s/in%05d_x.png" % (itr_out_dir, epoch))
+        # utils.save2img(X[:, slice, :], "%s/in%05d_y.png" % (itr_out_dir, epoch))
+        # utils.save2img(X[:, :, slice], "%s/in%05d_z.png" % (itr_out_dir, epoch))

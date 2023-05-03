@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import time
 
 import imageio
 
@@ -39,6 +40,13 @@ def slice_feature_extraction_loss(feature_extractor, X_perc, Y_perc):
 
     X_perc = feature_extractor(X_perc)  # N, C, H, W
     Y_perc = feature_extractor(Y_perc)  # N, C, H, W
+
+    # timestamp = time.time()//2**24
+
+    # print(X_perc.shape)
+
+    # save2img(X_perc[0,0].cpu().detach().numpy(), f"X_perc_{timestamp}.png")
+    # save2img(Y_perc[0,0].cpu().detach().numpy(), f"Y_perc_{timestamp}.png")
 
     return mean_squared_error(X_perc.reshape(-1), Y_perc.reshape(-1))
 

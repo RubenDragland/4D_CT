@@ -264,6 +264,8 @@ class Generator3DTomoGAN(nn.Module):
         self.net_up2 = nn.Sequential(*up_sampling2)
         self.net_up3 = nn.Sequential(*up_sampling3)
 
+        self.final_sigmoid = nn.Sigmoid()
+
     def unet_conv_block(self, block, in_ch, out_ch):
         block.append(
             nn.Conv3d(
@@ -303,6 +305,7 @@ class Generator3DTomoGAN(nn.Module):
         x = torch.cat((x, skip_connections.pop()), dim=1)
         x = self.net_up3(x)
 
+        x = self.final_sigmoid(x)
         return x
 
 

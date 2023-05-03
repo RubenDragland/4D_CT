@@ -1,0 +1,1 @@
+{"name": "std", "lmse": 10, "ladv": 1, "psz": 128, "mbsz": 1, "itg": 2, "itd": 2, "lrateg": 0.0001, "lrated": 0.0001, "train_split": 0.9, "transforms": "basic"}

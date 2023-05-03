@@ -1,3 +1,8 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2"
+os.environ["MASTER_ADDR"] = "127.0.0.1"
+os.environ["MASTER_PORT"] = "29500"
+
 import torch
 from torch import nn as nn
 import sys, os, argparse, shutil
@@ -37,7 +42,7 @@ def multiprocess_train_code(
         rank=rank,
         world_size=num_gpus,
         init_method="env://",
-    )  # RSD: Hope init_method is correct
+    )  # RSD: Hope init_method is correct. Might be for linux, but not windows
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_set)
     train_dataloader = DataLoader(
@@ -59,6 +64,12 @@ def multiprocess_train_code(
         sampler=val_sampler,
     )
 
+    """
+    BTW, you’d better set the num_workers=0 when distributed training, because creating extra threads in the children processes may be problemistic. 
+    I also found pin_memory=False avoids many horrible bugs, maybe such things are machine-specific, please email me if you readers explored more details.
+    
+    """
+
     logging.debug("Rank: " + str(rank) + " - Data loaded.")
 
     # Inits models across the gpus
@@ -77,7 +88,7 @@ def multiprocess_train_code(
     feature_extractor = TransferredResnet(
         pretrained_weights
     ).cuda()  # models.vgg19_bn(weights=pretrained_weights).features
-    # feature_extractor = ddp_utils.init_model(feature_extractor, rank)
+    # feature_extractor = ddp_utils.init_model(feature_extractor, rank) RSD: Not needed when no gradients
     # feature_extractor = nn.SyncBatchNorm.convert_sync_batchnorm(
     #     feature_extractor
     # )  # RSD: Believe this is necessary
@@ -92,7 +103,10 @@ def multiprocess_train_code(
     mean_squared_error = nn.MSELoss()
     mean_squared_error.cuda(rank)
 
-    assert args.itg + args.itd > len(
+    logging.debug(len(train_dataloader))
+
+    #RSD: Not really necessary. Choose a number per epoch. Do not know how it works when distributed.
+    assert args.itg + args.itd < len(
         train_dataloader
     ), "Must be enough data for each epoch"
 
@@ -103,6 +117,7 @@ def multiprocess_train_code(
         training_iter = 0
 
         while training_iter + args.itg + args.itd < len(train_dataloader):
+            training_iter += args.itg + args.itd
             gen_optim.zero_grad()
             discriminator.eval()
             discriminator.requires_grad_(False)
@@ -149,32 +164,37 @@ def multiprocess_train_code(
                 itr_prints_gen=itr_prints_gen,
             )
 
-            generator.eval()
-            generator.requires_grad_(False)
+        generator.eval()
+        generator.requires_grad_(False)
 
-            with torch.no_grad():
-                X = ddp_utils.validation_loop(
-                    val_dataloader,
-                    gen_optim,
-                    generator,
-                    discriminator,
-                    feature_extractor,
-                    preprocess,
-                    mean_squared_error,
-                    binary_cross_entropy,
-                    rank,
-                    args,
-                    epoch,
-                )
+        with torch.no_grad():
+            X, Y = ddp_utils.validation_loop(
+                val_dataloader,
+                gen_optim,
+                generator,
+                discriminator,
+                feature_extractor,
+                preprocess,
+                mean_squared_error,
+                binary_cross_entropy,
+                rank,
+                args,
+                epoch,
+            )
 
-                ddp_utils.save_checkpoint(
-                    X, args, epoch, itr_out_dir, generator, val_dataloader, rank
-                )
+        ddp_utils.save_checkpoint(
+            X, Y, args, epoch, itr_out_dir, generator, val_dataloader, rank
+        )
 
     return
 
 
 if __name__ == "__main__":
+
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2"
+    os.environ["MASTER_ADDR"] = "127.0.0.1"
+    os.environ["MASTER_PORT"] = "29500"
     parser = parser_args_gym()
 
     args, unparsed = parser.parse_known_args()
@@ -187,7 +207,7 @@ if __name__ == "__main__":
         exit(0)
 
     if len(args.gpus) > 0:
-        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2"#args.gpus
     os.environ[
         "TF_CPP_MIN_LOG_LEVEL"
     ] = "3"  # disable printing INFO, WARNING, and ERROR
@@ -212,7 +232,7 @@ if __name__ == "__main__":
 
     if args.hparams_file == "0":
         hparams = None  # {}  # RSD: Fix this
-        data_hparams = {"train_split": 0.875, "val_split": 0.125, "test_split": 0.0}
+        data_hparams = {"train_split": 0.9, "val_split": 0.10, "test_split": 0.0}
     else:
         hparams = torch.load(args.hparams_file)
         # RSD: Need some fixing.

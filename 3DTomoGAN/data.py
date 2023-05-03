@@ -60,9 +60,10 @@ basic_transforms = tio.Compose(
     [
         tio.RescaleIntensity((0, 1), include=includes),
         flipping_transforms,
-        tio.RandomAffine(scales=1, degrees=(0, 360, 0, 0, 0, 0), include=includes),
+        tio.RandomAffine(scales=1, degrees=(0, 360, 0, 360, 0, 360), include=includes),
     ],
 )
+#RSD: Consider how rotation should be conducted
 
 advanced_transforms = tio.Compose(
     [
@@ -92,22 +93,23 @@ class Dataset3D(Dataset):
         self,
         filename,
         img_dir_root,
-        transform=None,  # transforms.Compose([transforms.ToTensor()]),
-        target_transform=None,  # transforms.Compose([transforms.ToTensor()]),
+        hparams
     ):
         self.root = os.path.join(img_dir_root, f"{filename}.h5") 
         self.filename = filename
-        self.transform = Dataset3D.transforms_dict["basic"]  # [transform]
-        self.target_transform = Dataset3D.transforms_dict["basic"]  # [target_transform]
+        self.hparams = hparams
+        self.transform = Dataset3D.transforms_dict[hparams["transforms"]]  # [transform]
+        self.target_transform = Dataset3D.transforms_dict[hparams["transforms"]]  # [target_transform]
 
     def __getitem__(self, index):
         dimensions = h5py.File(self.root, "r")["noisy3D"][str(index).zfill(5)].shape
+        size = self.hparams["psz"]
 
-        crop_centres = self.random_crop_h5py(dimensions, size=128)
+        crop_centres = self.random_crop_h5py(dimensions, size)
         # RSD: Hard-code size. Else include hparam in Dataset3D.
 
-        data = self.load_cropped("noisy3D", index, crop_centres, size=128)
-        target = self.load_cropped("target3D", index, crop_centres, size=128)
+        data = self.load_cropped("noisy3D", index, crop_centres, size)
+        target = self.load_cropped("target3D", index, crop_centres, size)
 
         # data = torch.from_numpy(
         #     np.array(
