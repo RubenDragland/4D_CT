@@ -5,18 +5,18 @@ import json
 import os 
 
 hparams = {
-    "name": "std",
-    "lmse": 50,
-    "ladv": 1,
+    "name": "std_continuation",
+    "lmse": 60,
+    "ladv": 2,
     "psz": 128,
     "mbsz": 1,
-    "itg": 1,
+    "itg": 2,
     "itd": 1,
     "lrateg": 1e-4,
-    "lrated": 1e-4,
-    "train_split": 0.75,
+    "lrated": 2e-4,
+    "train_split": 0.85,
     "transforms": "basic",
-    "transfer_model": "simV1_it00500_gen"
+    "transfer_model": "all_norm_it0100_gen"
 }
 
 if __name__ == "__main__":

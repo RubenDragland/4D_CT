@@ -514,7 +514,7 @@ class EquinorDynamicCT(EquinorDataCT):
             )
             angles = np.squeeze(f[ReconstructionsDataCT.EQNR_ANGLES][str(idx).zfill(5)])
 
-            for elem in range(1, fibonacci):
+            for elem in tqdm.trange(1, fibonacci):
                 new_data = np.squeeze(
                     f[ReconstructionsDataCT.EQNR_PROJECTIONS][str(idx + elem).zfill(5)]
                 )

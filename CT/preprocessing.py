@@ -76,8 +76,7 @@ class IndustrialGeometryEQNR:
         # golden_geometry.rotDetector = np.array([self.values["rotation"], 0, 0])  # Rotation of detector
 
         self.geo = golden_geometry
-        # self.values = self.values
-        return  # (golden_geometry, self.values)
+        return  
 
     def __call__(self):
         return self.geo
@@ -226,7 +225,7 @@ class ProjectionsEQNR:
 
         if geometry is None:
             geom_obj = IndustrialGeometryEQNR()
-            self.geometry, geom_values = geom_obj.golden_geometry, geom_obj.values
+            self.geometry, geom_values = geom_obj(), geom_obj.values
         else:
             geom_path = os.path.join(self.root, geometry)
             geom_obj = IndustrialGeometryEQNR(default=False, path=geom_path)
@@ -239,7 +238,7 @@ class ProjectionsEQNR:
         self.rotation = geom_values["rotation"] if rotation == 0 else rotation
 
         try:
-            self.angles = self.read_angles(os.path.join(self.root, f"{exp_name}")) #TODO: Has to be wrong angles
+            self.angles, names = self.read_angles(os.path.join(self.root, f"{exp_name}")) #TODO: Has to be wrong angles
         except:
             print("Except when reading angles!!!")
             self.angles = np.linspace(0, 360, self.number_of_projections)
@@ -251,7 +250,7 @@ class ProjectionsEQNR:
             (self.number_of_projections, self.roi[0], self.roi[1])
         )
 
-        self.find_centre_rotation()  # RSD: Not implemented correctly
+        # self.find_centre_rotation()  # RSD: Not implemented correctly
 
         for i, p_root in enumerate(self.p_roots):
             im = self.load_tif(p_root)
@@ -330,10 +329,11 @@ class ProjectionsEQNR:
         angles = np.array(
             [float(str(angle).replace(",", ".")) for angle in raw_data[0]]
         )
+        names = [ item[-9:-4] for item in raw_data[3] ]
 
         assert angles.dtype == np.float64
         "Wrong conversion. See read_angles(self)"
-        return angles
+        return angles, names
     
     # def set_final_geometry(self): RSD: Deep copy instead. should not be necessary
 
@@ -350,7 +350,6 @@ class ProjectionsEQNR:
             f.create_dataset("angles", data=self.angles)
             # f.create_dataset("geometry", data=self.geometry)
             f.create_group("meta")
-            f["meta"].attrs["metallic_mean_n"] = self.metallic_mean_n
             f["meta"].attrs["rotation"] = self.rotation
             f["meta"].attrs["roi"] = self.roi
             f["meta"].attrs["root"] = self.root
@@ -503,7 +502,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         )
         return
 
-    def find_filename_path(self, dir, j):
+    def find_filename_path(self, dir, j, name):
         """Finds the path to the desired projection image"""
 
         # idx = re.search(" \d-", dir) #RSD : Already done in __init__()
@@ -513,6 +512,8 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         file = [item for item in filenames if item.endswith(f"{str(j).zfill(5)}.tif")]
         assert len(file) == 1
         "More matches/ Zero matches. Cannot proceed!"
+        assert name == file[0][-9:-4]
+        "Wrong angle to file"
 
         full_path = os.path.join(folder_path, file[0])
         return full_path
@@ -534,7 +535,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         for i in tqdm.trange(self.nrevs):
 
             folder_path = os.path.join(self.root, self.revolution_folders[i][1])
-            angles[i*self.nproj_360: (i+1)*self.nproj_360  ] = self.read_angles(folder_path)
+            angles[i*self.nproj_360: (i+1)*self.nproj_360  ], names = self.read_angles(folder_path)
 
             for j in range(self.nproj_360):
                 
@@ -599,10 +600,10 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
 
             data = np.zeros((self.nproj_360, self.roi[0], self.roi[1]))
             folder_path = os.path.join(self.root, dir)
-            angles = self.read_angles(folder_path)
+            angles, names = self.read_angles(folder_path)
 
             for j in range(self.nproj_360):
-                full_path = self.find_filename_path(dir, j)
+                full_path = self.find_filename_path(dir, j, names[j])
                 im = self.load_tif(full_path)
                 im = self.normalise_projection(im)
                 im = self.remove_defects(im)
@@ -620,7 +621,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         "Zero position is not last revolution!"
         folder_path = os.path.join(self.root, dir)
         filenames = os.listdir(folder_path)
-        angles = self.read_angles(folder_path)
+        angles, names = self.read_angles(folder_path)
         data = np.zeros((4, self.roi[0], self.roi[1]))
         for j in range(4):
             file = [

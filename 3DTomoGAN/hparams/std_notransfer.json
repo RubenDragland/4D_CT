@@ -1,0 +1,1 @@
+{"name": "std_notransfer", "lmse": 60, "ladv": 1, "psz": 128, "mbsz": 1, "itg": 2, "itd": 1, "lrateg": 0.0001, "lrated": 0.0002, "train_split": 0.85, "transforms": "basic", "transfer_model": null}

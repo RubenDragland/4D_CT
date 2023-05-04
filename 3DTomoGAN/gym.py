@@ -139,7 +139,7 @@ logging.info("After Splitting: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 train_dataloader = DataLoader(train_set, batch_size=args.mbsz, shuffle=True)
 val_dataloader = DataLoader(val_set, batch_size=val_size, shuffle=True)
 # RSD: Should save test_set to file for testing later.
-torch.save(test_set, rf"{itr_out_dir}\test_set.pt")
+# torch.save(test_set, rf"{itr_out_dir}\test_set.pt")
 
 mem = torch.cuda.mem_get_info()
 logging.info("After loading: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
@@ -149,13 +149,14 @@ logging.info("After loading: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 generator = Generator3DTomoGAN().to(device)
 discriminator = Discriminator3DTomoGAN().to(device)
 
-if not int(args.gpus):
-    generator = torch.nn.DataParallel(generator)
-    discriminator = torch.nn.DataParallel(discriminator)
+# if not int(args.gpus):
+#     generator = torch.nn.DataParallel(generator)
+#     discriminator = torch.nn.DataParallel(discriminator)
 
 if hparams["transfer_model"] is not None:
     my_path = os.path.abspath(os.path.dirname(__file__))
     generator.load_state_dict(torch.load(os.path.join(my_path,"transfer_models", f"{hparams['transfer_model']}.pth")))
+    logging.info("Transfer loaded")
 
 pretrained_weights = (
     models.ResNet50_Weights.IMAGENET1K_V1
@@ -165,7 +166,7 @@ preprocess = pretrained_weights.transforms()  # RSD: Check this. (transforms?)
 # feature_extractor = models.resnet152(
 #     weights=pretrained_weights
 # )#.features  # models.vgg19_bn(weights=pretrained_weights).features
-feature_extractor = TransferredResnet(pretrained_weights)
+feature_extractor = TransferredResnet(pretrained_weights) # Can possibly only use a small section of the net. First few convolutions
 feature_extractor.to(device)
 feature_extractor.eval()
 feature_extractor.requires_grad_(False)
