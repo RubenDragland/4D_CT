@@ -1,1 +1,1 @@
-{"name": "std", "lmse": 10, "ladv": 1, "psz": 128, "mbsz": 1, "itg": 2, "itd": 2, "lrateg": 0.0001, "lrated": 0.0001, "train_split": 0.9, "transforms": "basic"}
+{"name": "std", "lmse": 50, "ladv": 1, "psz": 128, "mbsz": 1, "itg": 1, "itd": 1, "lrateg": 0.0001, "lrated": 0.0001, "train_split": 0.75, "transforms": "basic", "transfer_model": "simV1_it00500_gen"}
