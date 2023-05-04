@@ -6,7 +6,7 @@ import os
 
 hparams = {
     "name": "std",
-    "lmse": 10,
+    "lmse": 50,
     "ladv": 1,
     "psz": 128,
     "mbsz": 1,
@@ -14,8 +14,9 @@ hparams = {
     "itd": 1,
     "lrateg": 1e-4,
     "lrated": 1e-4,
-    "train_split": 0.9,
-    "transforms": "basic"
+    "train_split": 0.75,
+    "transforms": "basic",
+    "transfer_model": "simV1_it00500_gen"
 }
 
 if __name__ == "__main__":

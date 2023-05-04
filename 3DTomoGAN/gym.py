@@ -67,7 +67,8 @@ if len(unparsed) > 0:
     exit(0)
 
 if len(args.gpus) > 0:
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
+    # os.environ["CUDA_VISIBLE_DEVICES"] = [str(i) for i in range(int(args.gpus))]
+    pass
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # disable printing INFO, WARNING, and ERROR
 
 itr_out_dir = args.expName + "-itrOut"
@@ -147,6 +148,14 @@ logging.info("After loading: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
 generator = Generator3DTomoGAN().to(device)
 discriminator = Discriminator3DTomoGAN().to(device)
+
+if not int(args.gpus):
+    generator = torch.nn.DataParallel(generator)
+    discriminator = torch.nn.DataParallel(discriminator)
+
+if hparams["transfer_model"] is not None:
+    my_path = os.path.abspath(os.path.dirname(__file__))
+    generator.load_state_dict(torch.load(os.path.join(my_path,"transfer_models", f"{hparams['transfer_model']}.pth")))
 
 pretrained_weights = (
     models.ResNet50_Weights.IMAGENET1K_V1

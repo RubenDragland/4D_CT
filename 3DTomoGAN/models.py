@@ -305,7 +305,8 @@ class Generator3DTomoGAN(nn.Module):
         x = torch.cat((x, skip_connections.pop()), dim=1)
         x = self.net_up3(x)
 
-        x = self.final_sigmoid(x)
+        x =( x - torch.min(x) )/ (torch.max(x) - torch.min(x)) #RSD: Normalise?
+
         return x
 
 
