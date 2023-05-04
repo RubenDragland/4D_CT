@@ -14,3 +14,8 @@ Doc
 Plotting/plots
 trygveur_code
 Grey Goo
+3DTomoGAN\multi_simulated_dist-itrOut
+3DTomoGAN\multi_simulated_test-itrOut
+3DTomoGAN\single_experimental_long-itrOut
+3DTomoGAN\single_experimental_mse-itrOut
+3DTomoGAN\single_simulated_test-itrOut
