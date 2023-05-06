@@ -57,7 +57,13 @@ class IndustrialGeometryEQNR:
             golden_geometry.dDetector * golden_geometry.nDetector
         )  # total size of the detector (mm)
 
-        golden_geometry.nVoxel = np.array([golden_geometry.nDetector[0], golden_geometry.nDetector[1], golden_geometry.nDetector[1]]) # number of voxels
+        golden_geometry.nVoxel = np.array(
+            [
+                golden_geometry.nDetector[0],
+                golden_geometry.nDetector[1],
+                golden_geometry.nDetector[1],
+            ]
+        )  # number of voxels
         golden_geometry.dVoxel = self.values["dVoxel"]
         golden_geometry.sVoxel = (
             golden_geometry.dVoxel * golden_geometry.nVoxel
@@ -76,7 +82,7 @@ class IndustrialGeometryEQNR:
         # golden_geometry.rotDetector = np.array([self.values["rotation"], 0, 0])  # Rotation of detector
 
         self.geo = golden_geometry
-        return  
+        return
 
     def __call__(self):
         return self.geo
@@ -238,10 +244,12 @@ class ProjectionsEQNR:
         self.rotation = geom_values["rotation"] if rotation == 0 else rotation
 
         try:
-            self.angles, names = self.read_angles(os.path.join(self.root, f"{exp_name}")) #TODO: Has to be wrong angles
+            self.angles, names = self.read_angles(
+                os.path.join(self.root, f"{exp_name}")
+            )  # TODO: Has to be wrong angles
         except:
             print("Except when reading angles!!!")
-            self.angles = np.linspace(0, 360, self.number_of_projections)
+            self.angles = np.linspace(0, 2 * np.pi, self.number_of_projections)
 
         self.projections = None
 
@@ -276,7 +284,11 @@ class ProjectionsEQNR:
         flat = self.load_tif(os.path.join(self.correction_parent, self.name_flat))
         dark = self.load_tif(os.path.join(self.correction_parent, self.name_dark))
         proj = (proj - dark) / (tol + flat - dark)
-        proj = 1 - np.clip(proj, 0, 1) # TODO: Consider to remove this clipping
+        proj = 1 - np.clip(
+            proj, 0, 1
+        )  # TODO: Consider to remove this clipping. May loose contrast. Instead normalise. Keep for now.
+        # RSD: Normalise
+        # proj = 1 - (proj - np.min(proj)) / (np.max(proj) - np.min(proj))
         return proj
 
     def remove_defects(self, proj):
@@ -313,7 +325,9 @@ class ProjectionsEQNR:
         """
         Rotating projection according to nsipro angle.
         """
-        return nd.rotate(proj, self.rotation, reshape=False)
+        return nd.rotate(
+            proj, self.rotation, reshape=True
+        )  # RSD: Try to set this to true
 
     def load_tif(self, full_path):
         """Load tiff file using PIL, and return as numpy array"""
@@ -329,16 +343,15 @@ class ProjectionsEQNR:
         angles = np.array(
             [float(str(angle).replace(",", ".")) for angle in raw_data[0]]
         )
-        names = [ item[-9:-4] for item in raw_data[3] ]
+        angles = angles * np.pi / 180  # RSD: Convert to radians!!!
+        names = [item[-9:-4] for item in raw_data.iloc[:, -1]]
 
         assert angles.dtype == np.float64
         "Wrong conversion. See read_angles(self)"
-        return angles, names
-    
-    # def set_final_geometry(self): RSD: Deep copy instead. should not be necessary
-
-    #     self.geometry.nDetector = np.array([self.roi[0], self.roi[1]])
-
+        return (
+            angles,
+            names,
+        )  # RSD: TODO: Possibly necessary with negative angles clockwise vs counter clockwise
 
     def save_h5(self):
         """Saving projections as h5 file with geometry data for reconstruction"""
@@ -460,7 +473,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
             (int((re.search(" \d+-", dir).group(0)).strip("-")), dir)
             for dir in self.revolution_folders
         ]
-        self.revolution_folders = sorted(self.revolution_folders)
+        self.revolution_folders = sorted(self.revolution_folders)  # RSD: Sort issue?
 
         return
 
@@ -493,6 +506,12 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
             f["angles"].create_dataset(f"{str(idx).zfill(5)}", data=angles)
         return
 
+    def assign_data_2_h5(self, data, idx):
+        with h5py.File(os.path.join(self.o_root, f"{self.exp_name}.h5"), "r+") as f:
+            del f["projections"][f"{str(idx).zfill(5)}"]
+            f["projections"].create_dataset(f"{str(idx).zfill(5)}", data=data)
+        return
+
     def find_corrections(self, correction_parent):
         """Finds correction files in given folder"""
         self.correction_parent = (
@@ -518,7 +537,7 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         full_path = os.path.join(folder_path, file[0])
         return full_path
 
-    def find_centre_rotation(self):
+    def find_centre_rotation(self, already_processed=True, gs_search=True, tol=0.1):
         """
         Aligning rotation of projection image.
 
@@ -528,37 +547,98 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
-        angles= np.zeros(self.nproj_360*self.nrevs)
-        centre_slice = np.zeros((self.nproj_360*self.nrevs, self.roi[1]))
-        
+        angles = np.zeros(self.nproj_360 * self.nrevs)
+        centre_slice = np.zeros((self.nproj_360 * self.nrevs, self.roi[1]))
 
-        for i in tqdm.trange(self.nrevs):
+        if already_processed:
+            processed_path = os.path.join(self.oroot, f"{self.exp_name}.h5")
+            with h5py.File(processed_path, "r") as f:
+                for i in tqdm.trange(self.nrevs):
+                    (
+                        angles[i * self.nproj_360 : (i + 1) * self.nproj_360],
+                        names,
+                    ) = np.array(f["angles"][f"{str(i).zfill(5)}"])
 
-            folder_path = os.path.join(self.root, self.revolution_folders[i][1])
-            angles[i*self.nproj_360: (i+1)*self.nproj_360  ], names = self.read_angles(folder_path)
+                    centre_slice[
+                        i * self.nproj_360 : (i + 1) * self.nproj_360
+                    ] = np.array(
+                        f["projections"][f"{str(i).zfill(5)}"][self.roi[0] // 2, :, :]
+                    )
+        else:
+            for i in tqdm.trange(self.nrevs):
+                folder_path = os.path.join(self.root, self.revolution_folders[i][1])
+                (
+                    angles[i * self.nproj_360 : (i + 1) * self.nproj_360],
+                    names,
+                ) = self.read_angles(folder_path)
 
-            for j in range(self.nproj_360):
-                
-                full_path = self.find_filename_path(self.revolution_folders[i][1], j)
+                for j in range(self.nproj_360):
+                    full_path = self.find_filename_path(
+                        self.revolution_folders[i][1], j, names[j]
+                    )
 
-                im = self.load_tif(full_path)
-                im0_shape = im.shape
-                im = self.rotate_projection(im)[im0_shape[0] // 2,im0_shape[1] // 2- self.roi[1] // 2 : im0_shape[1] // 2+ self.roi[1] // 2,]
+                    im = self.load_tif(full_path)
+                    im0_shape = im.shape
+                    im = self.rotate_projection(im)[
+                        im0_shape[0] // 2,
+                        im0_shape[1] // 2
+                        - self.roi[1] // 2 : im0_shape[1] // 2
+                        + self.roi[1] // 2,
+                    ]
 
-                centre_slice[i*self.nproj_360 + j] = im
+                    centre_slice[i * self.nproj_360 + j] = im
 
-                
-                
-        centre_slice = centre_slice[:,np.newaxis,:]
-
+        centre_slice = centre_slice[:, np.newaxis, :]
 
         def sharpness_score(Y):  # RSD: Edge in x and y direction. Abs value and sum.
             Yx = nd.sobel(Y, axis=0)
             Yy = nd.sobel(Y, axis=1)
             return np.max(Yx**2 + Yy**2)
 
-        offset = np.linspace(-20, 20, 201)
-        # np.arange(-20, 20) Make even more subpixel. TODO: Golden ratio search.
+        def recursive_gs(offs):
+            if offs["x1"][1] > offs["x2"][1]:
+                offs["xl"] = offs["x2"]
+                offs["x2"] = offs["x1"]
+
+                offs["x1"] = [
+                    offs["xl"] + (np.sqrt(5) - 1) / 2 * (offs["xu"] - offs["xl"]),
+                    0,
+                ]
+
+                slice_geom.COR = offs["x1"][0]
+                rec = algs.fdk(
+                    centre_slice,
+                    slice_geom,
+                    angles,
+                    gpuids=gpuids,
+                )
+                offs["x1"][1] = sharpness_score(rec[0])
+
+            else:
+                offs["xu"] = offs["x1"]
+                offs["x1"] = offs["x2"]
+
+                offs["x2"] = [
+                    offs["xu"] - (np.sqrt(5) - 1) / 2 * (offs["xu"] - offs["xl"]),
+                    0,
+                ]
+
+                slice_geom.COR = offs["x2"][0]
+                rec = algs.fdk(
+                    centre_slice,
+                    slice_geom,
+                    angles,
+                    gpuids=gpuids,
+                )
+                offs["x2"][1] = sharpness_score(rec[0])
+
+            if offs["xu"] - offs["xl"] < tol:
+                self.hor_offset = (offs["xu"] + offs["xl"]) / 2
+                self.geometry.COR = self.hor_offset
+                return self.hor_offset
+            else:
+                return recursive_gs(offs)
+
         max_score = 0
         max_offset = 0
 
@@ -568,20 +648,48 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
         slice_geom.nVoxel = np.array([1, self.roi[1], self.roi[1]])
         slice_geom.sVoxel = slice_geom.nVoxel * slice_geom.dVoxel
 
-        for o, off in enumerate(tqdm.tqdm(offset)):
-            slice_geom.COR = off  # np.array([off, 0, 0])
+        if gs_search:
+            xl, xu = -100, 100  # RSD: Hardcoded
 
-            rec = algs.fdk(
-                centre_slice,  # input_slice,
-                slice_geom,
-                angles,
-                gpuids=gpuids,
-            )
+            d = (np.sqrt(5) - 1) / 2 * (xl - xu)
 
-            s_score = sharpness_score(rec[0])
-            if s_score > max_score:
-                max_score = s_score
-                max_offset = off
+            x1 = xl + d
+            x2 = xu - d
+
+            offs = {"xl": [xl, 0], "x1": [x1, 0], "x2": [x2, 0], "xu": [xu, 0]}
+
+            for o, (k, off) in enumerate(offs.items()):
+                slice_geom.COR = off[0]
+
+                rec = algs.fdk(
+                    centre_slice,  # input_slice,
+                    slice_geom,
+                    angles,
+                    gpuids=gpuids,
+                )
+                offs[k][1] = sharpness_score(rec[0])
+
+            return recursive_gs(offs)
+
+        else:
+            # RSD: Consider to use shape of centre_slice instead of roi.
+
+            offset = np.linspace(-20, 20, 201)
+
+            for o, off in enumerate(tqdm.tqdm(offset)):
+                slice_geom.COR = off  # np.array([off, 0, 0])
+
+                rec = algs.fdk(
+                    centre_slice,  # input_slice,
+                    slice_geom,
+                    angles,
+                    gpuids=gpuids,
+                )
+
+                s_score = sharpness_score(rec[0])
+                if s_score > max_score:
+                    max_score = s_score
+                    max_offset = off
 
         print(f"Centre offset: {max_offset}")
         self.hor_offset = max_offset
@@ -639,4 +747,40 @@ class DynamicProjectionsEQNR(ProjectionsEQNR):
 
         self.save_2_h5(data, angles, i)
 
+        return
+
+    def load_processed(self, idx):
+        """
+        Load processed data from h5 file.
+        """
+        with h5py.File(os.path.join(self.o_root, f"{self.exp_name}.h5"), "r") as f:
+            data = f["projections"][f"{str(idx).zfill(5)}"]
+            angles = f["angles"][f"{str(idx).zfill(5)}"]
+            return np.array(data), np.array(angles)
+
+    def crop_roi_processed(self, idx: int, roi: tuple) -> np.ndarray:
+        """
+        Crop ROI for processed data.
+        """
+        data, angles = self.load_processed(idx)
+        dshape = data.shape
+        return data[
+            :,
+            dshape[1] // 2 - roi[0] // 2 : dshape[1] // 2 + roi[0] // 2,
+            dshape[-1] // 2 - roi[1] // 2 : dshape[-1] // 2 + roi[1] // 2,
+        ]
+
+    def crop_roi_processed_projections(self, roi):
+        """
+        Crop ROI for processed data.
+        """
+
+        self.roi = roi
+
+        for idx in tqdm.trange(self.nrevs):
+            data, angles = self.load_processed(idx)
+
+            data = self.crop_roi_processed(idx, roi)
+
+            self.assign_data_2_h5(data, angles, idx)
         return

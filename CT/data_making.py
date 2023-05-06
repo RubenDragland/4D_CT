@@ -81,7 +81,9 @@ class ReconstructionsDataCT:
     def __len__(self):
         return len(h5py.File(self.full_path)[self.NOISY_KEY].keys())
 
-    def process_data(self, objects: list, n_angles=100, method="fdk", undersampling_factor=True):
+    def process_data(
+        self, objects: list, n_angles=100, method="fdk", undersampling_factor=True
+    ):
         o = h5py.File(self.full_path, "r+")
 
         for i, obj in enumerate(objects):
@@ -89,24 +91,37 @@ class ReconstructionsDataCT:
             # f = h5py.File(os.path.join(obj.root, f"{obj.name}.h5"), "r")
             f = obj.read_item(obj)
             data = obj.reconstruct_target(o, f, index)
-            obj.reconstruct_noisy(o, f, data, index, n_angles=n_angles, method=method, undersampling_factor=undersampling_factor)
+            obj.reconstruct_noisy(
+                o,
+                f,
+                data,
+                index,
+                n_angles=n_angles,
+                method=method,
+                undersampling_factor=undersampling_factor,
+            )
             # f.close() #RSD: Issue for EQNRRec not h5 file.
 
         o.close()
         return
-    
-    def copy_from_other(self, other):
 
+    def copy_from_other(self, other):
         with h5py.File(self.full_path, "r+") as tofile:
             with h5py.File(other.full_path, "r") as fromfile:
-
                 for j in tqdm.trange(other.__len__()):
-                     idx = self.__len__()
+                    idx = self.__len__()
 
-                     tofile[ReconstructionsDataCT.TARGET_KEY].create_dataset(str(idx).zfill(5), data = fromfile[ReconstructionsDataCT.TARGET_KEY][str(j).zfill(5)])
-                     tofile[ReconstructionsDataCT.NOISY_KEY].create_dataset(str(idx).zfill(5), data = fromfile[ReconstructionsDataCT.NOISY_KEY][str(j).zfill(5)])
+                    tofile[ReconstructionsDataCT.TARGET_KEY].create_dataset(
+                        str(idx).zfill(5),
+                        data=fromfile[ReconstructionsDataCT.TARGET_KEY][
+                            str(j).zfill(5)
+                        ],
+                    )
+                    tofile[ReconstructionsDataCT.NOISY_KEY].create_dataset(
+                        str(idx).zfill(5),
+                        data=fromfile[ReconstructionsDataCT.NOISY_KEY][str(j).zfill(5)],
+                    )
         return
-
 
     def visualise(self, idx: list = [-1]):
         o = h5py.File(self.full_path, "r")
@@ -324,8 +339,18 @@ class TomoBankPhantomCT(ReconstructionsDataCT):
                     data = data_layer
                     continue
                 elif k % 2 == 0:
-                    data = np.vstack((data, nd.rotate(data_layer, angle=(k+1)*180/(depth//32), axes=(2,1), reshape=False)))
-                    # RSD: TODO: Add some rotation to make it less symmetric. Check if nice. 
+                    data = np.vstack(
+                        (
+                            data,
+                            nd.rotate(
+                                data_layer,
+                                angle=(k + 1) * 180 / (depth // 32),
+                                axes=(2, 1),
+                                reshape=False,
+                            ),
+                        )
+                    )
+                    # RSD: TODO: Add some rotation to make it less symmetric. Check if nice.
                 else:
                     data = np.vstack((data, blancks))
 
@@ -334,12 +359,14 @@ class TomoBankPhantomCT(ReconstructionsDataCT):
             )
         return data
 
-    def reconstruct_noisy(self, o, f, data, idx, n_angles, method="fdk", undersampling_factor=True):
+    def reconstruct_noisy(
+        self, o, f, data, idx, n_angles, method="fdk", undersampling_factor=True
+    ):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
         if undersampling_factor:
-            n_angles = int(np.pi/2*data.shape[-1]//n_angles)
+            n_angles = int(np.pi / 2 * data.shape[-1] // n_angles)
         else:
             n_angles = n_angles
 
@@ -361,18 +388,17 @@ class TomoBankPhantomCT(ReconstructionsDataCT):
         )
 
         return
-    
+
     def set_geo_dim(self, height, width):
-        '''
+        """
         Calls the function to retrieve the TIGRE GEOMETRY object, and ensures the expected shapes are correct.
-        '''
+        """
         geo = self.geo()
         geo.nDetector = np.array([height, width])
         geo.nVoxel = np.array([height, width, width])
         geo.sDetector = geo.nDetector * geo.dDetector
         geo.sVoxel = geo.nVoxel * geo.dVoxel
         return geo
-
 
 
 class TomoBankDataCT(ReconstructionsDataCT):
@@ -487,7 +513,7 @@ class EquinorDynamicCT(EquinorDataCT):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
-        #RSD: Consider to sort projections ???
+        # RSD: Consider to sort projections ???
         # angle_indices = np.argsort(angles)
         # data = data[angle_indices]
 
@@ -628,17 +654,21 @@ class EquinorReconstructions(ReconstructionsDataCT):
             )
             return data
 
-    def reconstruct_noisy(self, o, f, data, idx, n_angles, method="fdk", undersampling_factor=True):
+    def reconstruct_noisy(
+        self, o, f, data, idx, n_angles, method="fdk", undersampling_factor=True
+    ):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
         if undersampling_factor:
-            n_angles = int(np.pi/2*data.shape[-1]//n_angles)
+            n_angles = int(np.pi / 2 * data.shape[-1] // n_angles)
         else:
-            n_angles = n_angles  # np.random.randint(45, 200)  # RSD: How many projections?
+            n_angles = (
+                n_angles  # np.random.randint(45, 200)  # RSD: How many projections?
+            )
 
-        angles = np.linspace(0, 2 * np.pi, n_angles, endpoint=False) 
-        #RSD: TODO: Should be distributed as Golden Ratio?
+        angles = np.linspace(0, 2 * np.pi, n_angles, endpoint=False)
+        # RSD: TODO: Should be distributed as Golden Ratio?
 
         default_geo = MicroGeometry()
         geo = default_geo()
