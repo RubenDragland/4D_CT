@@ -107,6 +107,30 @@ def save2img(d_img, fn):
     imageio.imwrite(fn, img)
 
 
+def torch_ssim(I, J, c1=0.01**2, c2=0.03**2):
+    mean_I = torch.mean(I)
+    mean_J = torch.mean(J)
+
+    var_I = torch.var(I)
+    var_J = torch.var(J)
+
+    # cov_IJ = torch.mean((I - mean_I) * (J - mean_J))
+
+    ssim = (
+        (2 * mean_I * mean_J + c1)
+        * (2 * torch.mean((I - mean_I) * (J - mean_J)) + c2)
+        / ((mean_I**2 + mean_J**2 + c1) * (var_I + var_J + c2))
+    )
+    return ssim
+
+
+def torch_psnr(I, J):
+    mse = torch.mean((I - J) ** 2)
+    max_val = torch.max(I)
+    psnr = 10 * torch.log10(max_val**2 / mse)
+    return psnr
+
+
 def calc_ssim(I, J, c1=0.01**2, c2=0.03**2):
     mean_I = np.mean(I)
     mean_J = np.mean(J)
@@ -114,8 +138,6 @@ def calc_ssim(I, J, c1=0.01**2, c2=0.03**2):
     var_I = np.var(I)
     var_J = np.var(J)
 
-    cov_IJ = np.mean(I * J) - mean_I * mean_J
-    print(cov_IJ)
     cov_IJ = np.mean((I - mean_I) * (J - mean_J))
     print(cov_IJ)
 

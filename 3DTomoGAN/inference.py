@@ -6,114 +6,205 @@ import tqdm
 from models import Generator3DTomoGAN
 import matplotlib.pyplot as plt
 import torchio as tio
+import utils
 
 
-def enhance(model_path, model_name, data_folder, data_name):
+def enhance(
+    model_path, model_name, data_folder, data_name, key_input, key_target="gt", focus=0
+):
     # Load model
     model = Generator3DTomoGAN()
     model.load_state_dict(torch.load(os.path.join(model_path, f"{model_name}.pth")))
     model.eval()
-    model.to("cpu")
 
-    # print(model)
-
-    key_name = "noisy3D"
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
 
     # Load data
 
     with h5py.File(os.path.join(data_folder, f"{data_name}.h5"), "r+") as data:
-        # data.create_group("Enhanced")
-
         # Visualisation
-        items = list(data[key_name].keys()).__len__()
+        # items = list(data[key_input].keys()).__len__()
         items = 1
         sl = 256
 
-        fig, ax = plt.subplots(4, items, figsize=(15, 5 * items))
+        # RSD: While debugging.
 
-        # Give name to folder.
-        # Consider parallelisation
-        # for i in range(items):  # tqdm.tqdm(range(len(data[key_name]))):
-        #     # Get data
+        try:
+            del data[f"{key_input}_enhanced"]
+        except:
+            pass
 
-        #     rec = torch.from_numpy(np.array(data[key_name][str(i).zfill(5)]))[
-        #         sl:-sl, sl:-sl, sl:-sl
-        #     ]
+        try:
+            del data[f"{key_input}_enhanced_{focus[0]}{focus[1]}{focus[2]}"]
+        except:
+            pass
 
-        #     rec = tio.RescaleIntensity((0, 1))(rec.unsqueeze(0))
+        # fig, ax = plt.subplots(4, items, figsize=(15, 5 * items))
 
-        #     print("rec.shape", rec.shape)
+        if focus:
+            a = 256
 
-        #     # Enhance
+            rec = torch.from_numpy(np.array(data[key_input]))
+            xm, ym, zm = np.array(focus)
+            rec = rec[
+                xm - a // 2 : xm + a // 2,
+                ym - a // 2 : ym + a // 2,
+                zm - a // 2 : zm + a // 2,
+            ]
+            rec = tio.RescaleIntensity((0, 1))(rec.unsqueeze(0)).to(device)
+            rec_enhanced = torch.zeros_like(rec).to(device)
+            print(rec.shape)
 
-        #     with torch.no_grad():
-        #         rec_enhanced = torch.squeeze(model.forward(rec.unsqueeze(0)))
+            with torch.no_grad():
+                rec_enhanced = model.forward(rec.unsqueeze(0)).unsqueeze(0)
 
-        #     print("Done2")
-        #     # Save
-
-        #     # data["Enhanced"].create_dataset(str(i).zfill(5), data=rec_enhanced)
-
-        #     # Visualisation
-        #     rec = torch.squeeze(rec)
-        #     idx = rec.shape[0] // 2
-
-        #     ax[0, i].imshow(rec[idx, :, :], cmap="gray")
-        #     ax[1, i].imshow(rec[:, :, idx], cmap="gray")
-        #     ax[2, i].imshow(rec_enhanced[idx, :, :], cmap="gray")
-        #     ax[3, i].imshow(rec_enhanced[:, :, idx], cmap="gray")
-
-        #     print("Done3")
-
-        for i in tqdm.tqdm(range(items)):
-            rec = torch.from_numpy(np.array(data[key_name][str(i).zfill(5)]))
-            # [
-            #     sl:-sl, sl:-sl, sl:-sl
-            # ]
-            rec = tio.RescaleIntensity((0, 1))(rec.unsqueeze(0))
-            rec_enhanced = torch.zeros_like(rec)
-
-            sizes = rec.shape
-            a = 256  # Hard coded.
-            x = np.arange(0, sizes[1], a)
-            y = np.arange(0, sizes[2], a)
-            z = np.arange(0, sizes[3], a)
-
-            assert (
-                x[-1] + a <= sizes[1]
-                and y[-1] + a <= sizes[2]
-                and z[-1] + a <= sizes[3]
+            data.create_dataset(
+                f"{key_input}_enhanced_{focus[0]}{focus[1]}{focus[2]}",
+                data=np.squeeze(rec_enhanced.detach().cpu().numpy()),
             )
 
-            X, Y, Z = np.meshgrid(x, y, z)
-            X, Y, Z = X.flatten(), Y.flatten(), Z.flatten()
+            gt = torch.from_numpy(np.array(data[key_target]))
+            gt = gt[
+                xm - a // 2 : xm + a // 2,
+                ym - a // 2 : ym + a // 2,
+                zm - a // 2 : zm + a // 2,
+            ]
+            gt = tio.RescaleIntensity((0, 1))(gt.unsqueeze(0)).to(device)
+            rec_enhanced = tio.RescaleIntensity((0, 1))(
+                torch.squeeze(rec_enhanced.detach().cpu()).unsqueeze(0)
+            ).to(device)
 
-            for j, (xj, yj, zj) in tqdm.tqdm(enumerate(zip(X, Y, Z))):
-                rec_dv = rec[:, xj : xj + a, yj : yj + a, zj : zj + a]
+            print(gt.shape, rec_enhanced.shape)
 
-                # Enhance
+            ssim = utils.torch_ssim(gt, rec_enhanced).detach().cpu().numpy()
+            psnr = utils.torch_psnr(gt, rec_enhanced).detach().cpu().numpy()
 
-                with torch.no_grad():
-                    rec_enhanced[
-                        :, xj : xj + a, yj : yj + a, zj : zj + a
-                    ] = model.forward(rec_dv.unsqueeze(0)).unsqueeze(0)
+            data.attrs[
+                f"{key_input}_enhanced_ssim_{focus[0]}{focus[1]}{focus[2]}"
+            ] = ssim
+            data.attrs[
+                f"{key_input}_enhanced_psnr_{focus[0]}{focus[1]}{focus[2]}"
+            ] = psnr
 
-                # Save
+            print(f"SSIM: {ssim}, PSNR: {psnr}")
 
-                # data["Enhanced"].create_dataset(str(i).zfill(5), data=rec_enhanced)
+            ssim = utils.torch_ssim(gt, rec).detach().cpu().numpy()
+            psnr = utils.torch_psnr(gt, rec).detach().cpu().numpy()
 
-            # Visualisation
-            rec = torch.squeeze(rec)
-            rec_enhanced = torch.squeeze(rec_enhanced)
-            idx = rec.shape[0] // 2
+            print(f"OLD | SSIM: {ssim}, PSNR: {psnr}")
 
-            ax[0].imshow(rec[idx, :, :], cmap="gray")
-            ax[1].imshow(rec[:, :, idx], cmap="gray")
-            ax[2].imshow(rec_enhanced[idx, :, :], cmap="gray")
-            ax[3].imshow(rec_enhanced[:, :, idx], cmap="gray")
+            data.attrs[f"{key_input}_old_ssim_{focus[0]}{focus[1]}{focus[2]}"] = ssim
+            data.attrs[f"{key_input}_old_psnr_{focus[0]}{focus[1]}{focus[2]}"] = psnr
 
-    plt.show()
-    return
+        else:
+            for i in tqdm.tqdm(range(items)):
+                if items == 1:
+                    rec = torch.from_numpy(np.array(data[key_input]))[:1536, :, :]
+                else:
+                    rec = torch.from_numpy(np.array(data[key_input][str(i).zfill(5)]))
+
+                rec = tio.RescaleIntensity((0, 1))(rec.unsqueeze(0)).to(device)
+                rec_enhanced = torch.zeros_like(rec).to(device)
+
+                sizes = rec.shape
+                print(sizes)
+                a = 128  # Hard coded.
+                x = np.arange(0, sizes[1], a)
+                y = np.arange(0, sizes[2], a)
+                z = np.arange(0, sizes[3], a)
+
+                assert (
+                    x[-1] + a <= sizes[1]
+                    and y[-1] + a <= sizes[2]
+                    and z[-1] + a <= sizes[3]
+                )
+
+                X, Y, Z = np.meshgrid(x, y, z)
+                X, Y, Z = X.flatten(), Y.flatten(), Z.flatten()
+
+                for j, (xj, yj, zj) in tqdm.tqdm(enumerate(zip(X, Y, Z))):
+                    rec_dv = rec[:, xj : xj + a, yj : yj + a, zj : zj + a]
+
+                    # Enhance
+
+                    with torch.no_grad():
+                        rec_enhanced[
+                            :, xj : xj + a, yj : yj + a, zj : zj + a
+                        ] = model.forward(rec_dv.unsqueeze(0)).unsqueeze(0)
+
+                    # Save
+                if items == 1:
+                    data.create_dataset(
+                        f"{key_input}_enhanced",
+                        data=np.squeeze(rec_enhanced.detach().cpu().numpy()),
+                    )
+                else:
+                    data.create_group(f"{key_input}_enhanced")
+                    data[f"{key_input}_enhanced"].create_dataset(
+                        str(i).zfill(5),
+                        data=np.squeeze(rec_enhanced.detach().cpu().numpy()),
+                    )
+
+                del rec, model
+
+                # Determine PSNR and SSIM
+                if items == 1:
+                    gt = torch.from_numpy(np.array(data[key_target]))[:1536, :, :]
+                else:
+                    gt = torch.from_numpy(np.array(data[key_target][str(i).zfill(5)]))
+
+                gt = tio.RescaleIntensity((0, 1))(gt.unsqueeze(0)).to("cpu")
+                rec_enhanced = tio.RescaleIntensity((0, 1))(rec_enhanced.to("cpu"))
+
+                ssim = utils.torch_ssim(gt, rec_enhanced).detach().cpu().numpy()
+                psnr = utils.torch_psnr(gt, rec_enhanced).detach().cpu().numpy()
+
+                print(f"SSIM: {ssim}, PSNR: {psnr}")
+
+                if items == 1:
+                    data.attrs[f"{key_input}_enhanced_ssim"] = ssim
+                    data.attrs[f"{key_input}_enhanced_psnr"] = psnr
+                else:
+                    data[f"{key_input}_enhanced"].attrs["ssim"] = ssim
+                    data[f"{key_input}_enhanced"].attrs["psnr"] = psnr
+                    # RSD: Improve this. average or list or something.
+
+                del rec_enhanced
+
+                if items == 1:
+                    rec = torch.from_numpy(np.array(data[key_input]))[:1536, :, :]
+                else:
+                    rec = torch.from_numpy(np.array(data[key_input][str(i).zfill(5)]))
+
+                rec = tio.RescaleIntensity((0, 1))(rec.unsqueeze(0)).to("cpu")
+
+                ssim = utils.torch_ssim(gt, rec).detach().cpu().numpy()
+                psnr = utils.torch_psnr(gt, rec).detach().cpu().numpy()
+
+                print(f"OLD | SSIM: {ssim}, PSNR: {psnr}")
+
+                if items == 1:
+                    data.attrs[f"{key_input}_old_ssim"] = ssim
+                    data.attrs[f"{key_input}_old_psnr"] = psnr
+                else:
+                    data[f"{key_input}_old"].attrs["ssim"] = ssim
+                    data[f"{key_input}_old"].attrs["psnr"] = psnr
+
+                del rec, gt
+
+        #         # Visualisation
+        #         rec = torch.squeeze(rec).detach().cpu().numpy()
+        #         rec_enhanced = torch.squeeze(rec_enhanced).detach().cpu().numpy()
+        #         idx = rec.shape[0] // 2
+
+        #         ax[0].imshow(rec[idx, :, :], cmap="gray")
+        #         ax[1].imshow(rec[:, :, idx], cmap="gray")
+        #         ax[2].imshow(rec_enhanced[idx, :, :], cmap="gray")
+        #         ax[3].imshow(rec_enhanced[:, :, idx], cmap="gray")
+
+        # plt.show()
+        return
 
 
 if __name__ == "__main__":
@@ -127,9 +218,24 @@ if __name__ == "__main__":
     parser.add_argument("-modelName", type=str, required=True, help="name of model")
     parser.add_argument("-dataFolder", type=str, required=True, help="Rec folder")
     parser.add_argument("-dataName", type=str, required=True, help="Rec name")
+    parser.add_argument("-keyInput", type=str, required=True, help="keyInput")
+    parser.add_argument(
+        "-keyTarget", type=str, required=False, default="gt", help="keyTarget"
+    )
+    parser.add_argument(
+        "-focus", type=int, required=False, nargs="+", default=0, help="Centre RoI"
+    )
 
     args, unparsed = parser.parse_known_args()
 
     # Run Enhancement
 
-    enhance(args.modelPath, args.modelName, args.dataFolder, args.dataName)
+    enhance(
+        args.modelPath,
+        args.modelName,
+        args.dataFolder,
+        args.dataName,
+        args.keyInput,
+        key_target=args.keyTarget,
+        focus=args.focus,
+    )
