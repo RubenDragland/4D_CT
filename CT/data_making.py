@@ -257,7 +257,7 @@ class PhantomGeometry(TigreGeometry):
                 "DSO": 930,  # Distance Source Origin (mm)
                 "nDetector": np.array([1024, 512]),  # number of pixels (px)
                 "dDetector": np.array([0.2, 0.2]),  # size of each pixel (mm)
-                "dVoxel": np.array([0.2, 0.2, 0.2]),  # Effective voxel pitch (mm)
+                "dVoxel": np.array([0.125, 0.125, 0.125]),  # Effective voxel pitch (mm)
                 "rotation": np.array([0, 0, 0]),  # Rotation of detector
             }
 
@@ -513,10 +513,6 @@ class EquinorDynamicCT(EquinorDataCT):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
-        # RSD: Consider to sort projections ???
-        # angle_indices = np.argsort(angles)
-        # data = data[angle_indices]
-
         rec = self.methods[method](data, geo, angles, gpuids=gpuids)
         return rec
 
@@ -530,6 +526,8 @@ class EquinorDynamicCT(EquinorDataCT):
         with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
             geo = pkl.load(g)
 
+        print(geo)
+        print(angles)
         rec = self.reconstruct_group(data, angles, geo, method=method)
         return rec
 
@@ -555,10 +553,56 @@ class EquinorDynamicCT(EquinorDataCT):
         with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
             geo = pkl.load(g)
 
+        self.geo = geo
+
         return data, angles, geo
 
-    def save_rec_timestamp(self, rec):
-        pass
+    def save_custom(self, rec, idx, fibonacci, method, name):
+        with h5py.File(self.full_path, "a") as o:
+            o.create_dataset(
+                name,
+                data=rec,
+            )
+        return
+
+    def reconstruct_custom(
+        self, idx, fibonacci, method="fdk", name=None, return_data=False
+    ):
+        data, angles, geo = self.make_projection_group(idx, fibonacci)
+        rec = self.reconstruct_group(data, angles, geo, method=method)
+
+        if name is None:
+            name = f"Rec_{idx}_{fibonacci}_{method}"
+
+        if return_data:
+            return rec, data
+        else:
+            self.save_custom(rec, idx, fibonacci, method, name)
+            return
+
+    def reconstruct_custom_4D(self, idx, fibonacci, method="fdk", name=None):
+        if name is None:
+            name = f"4D_{fibonacci}_{method}"
+
+        try:
+            with h5py.File(self.full_path, "a") as o:
+                o.create_group(name)
+        except:
+            "Group already exists. Aborting."
+            return
+
+        timestamps = len(
+            h5py.File(os.path.join(self.root, f"{self.name}.h5"))[
+                self.EQNR_ANGLES
+            ].keys()
+        )
+        for idx in tqdm.trange(0, timestamps, fibonacci):
+            if idx + fibonacci >= timestamps:
+                break
+            data, angles, geo = self.make_projection_group(idx, fibonacci)
+            rec = self.reconstruct_group(data, angles, geo, method=method)
+            self.add_undersampled_rec(rec, idx, group=name)
+        return
 
     def reconstruct_singles(self, method="fdk"):
         timestamps = len(
@@ -571,18 +615,45 @@ class EquinorDynamicCT(EquinorDataCT):
             rec = self.reconstruct_idx(idx, method=method)
             self.add_undersampled_rec(rec, idx)
 
-    def add_undersampled_rec(self, rec, idx):
-        with h5py.File(os.path.join(self.o_root, f"{self.o_name}.h5"), "a") as o:
-            o[ReconstructionsDataCT.NOISY_KEY].create_dataset(
-                f"{str(idx).zfill(5)}", data=rec
-            )
+    def add_undersampled_rec(self, rec, idx, group=ReconstructionsDataCT.NOISY_KEY):
+        with h5py.File(self.full_path, "a") as o:
+            o[group].create_dataset(f"{str(idx).zfill(5)}", data=rec)
         return
 
-    def plot_reconstruction(self, idx):
-        pass
+    def load_4plot_slice(self, name, idxs, idx=None):
+        with h5py.File(self.full_path, "r") as o:
+            if idx is None:
+                rec = np.squeeze(
+                    o[name][
+                        idxs[0][0] : idxs[0][1],
+                        idxs[1][0] : idxs[1][1],
+                        idxs[2][0] : idxs[2][1],
+                    ]
+                )
+            else:
+                rec = np.squeeze(
+                    o[name][str(idx).zfill(5)][
+                        idxs[0][0] : idxs[0][1],
+                        idxs[1][0] : idxs[1][1],
+                        idxs[2][0] : idxs[2][1],
+                    ]
+                )
+        # RSD: plot
+        return rec
 
-    def plot_4DCT(self):
-        pass
+    def load_4_4DCT(self, name, ts, idxs, idx_start=0):
+        timestamps = np.zeros(
+            (
+                ts,
+                idxs[0][1] - idxs[0][0],
+                idxs[1][1] - idxs[1][0],
+                idxs[2][1] - idxs[2][0],
+            )
+        )
+
+        for i in tqdm.trange(idx_start, ts + idx_start):
+            timestamps[i] = self.load_4plot_slice(name, idxs, idx=i)
+        return timestamps
 
     def merge_datasets(self):
         pass
