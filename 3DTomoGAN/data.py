@@ -61,7 +61,7 @@ basic_transforms = tio.Compose(
         tio.RescaleIntensity((0, 1), include=includes),
         random_inverse_transform, #RSD: Not when transfer learning
         flipping_transforms,
-        tio.RandomAffine(scales=1, degrees=(0, 360, 0, 360, 0, 360), include=includes),
+        tio.RandomAffine(scales=1, degrees=(0, 360, 0, 360, 0, 360), isotropic=True, include=includes),
     ],
 )
 #RSD: Consider how rotation should be conducted
