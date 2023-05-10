@@ -50,7 +50,7 @@ class Discriminator3DTomoGAN(nn.Module):
         fc_layers = self.create_FCS()
         if self.hparams["linear_layers"]:
             # nn.adaptibeavgpool3d Consider RSD hard coded dimensions
-            self.layers.append(nn.AdaptiveAvgPool3d((32, 32, 32)))
+            self.layers.append(nn.AdaptiveAvgPool3d((16, 16, 16)))
             self.layers.append(
                 nn.Flatten(start_dim=1)
             )  # N, C, H, W, D. May be an issue if batch size 1
@@ -65,7 +65,6 @@ class Discriminator3DTomoGAN(nn.Module):
         # self.net = nn.ModuleDict(**self.layers)
         self.layers.pop(-1)  # Remove last relu
         self.net = nn.Sequential(*self.layers)
-        print(self.net)  # RSD: Remember to check this.
         return
 
     def forward(self, x):
@@ -117,7 +116,7 @@ class Discriminator3DTomoGAN(nn.Module):
         )
         C3S2_4 = nn.Conv3d(
             in_channels=256,
-            out_channels=4,
+            out_channels=16,  # RSD: Changed from 4 to 16
             kernel_size=self.hparams["kernel_size"],
             stride=2,
             padding=self.hparams["stride2_padding"],
@@ -137,11 +136,18 @@ class Discriminator3DTomoGAN(nn.Module):
         # self.hparams["relu_type"](),
         if self.hparams["linear_layers"]:
             # RSD: in-features decided by the AvgPool3d layer times 4 channels.
+            # FC_64 = nn.Linear(
+            #     in_features=16
+            #     * 32
+            #     * 32
+            #     * 32,  # Now assuming input is 128x128x128. Thus spatial is 16x16x16 at this point.
+            #     out_features=64,
+            # )
             FC_64 = nn.Linear(
-                in_features=4
-                * 32
-                * 32
-                * 32,  # Currently assumed that the input is 256x256x256
+                in_features=16
+                * 16
+                * 16
+                * 16,  # Now assuming input is 128x128x128. Thus spatial is 16x16x16 at this point.
                 out_features=64,
             )
             # self.hparams["relu_type"](),
@@ -305,7 +311,7 @@ class Generator3DTomoGAN(nn.Module):
         x = torch.cat((x, skip_connections.pop()), dim=1)
         x = self.net_up3(x)
 
-        x =( x - torch.min(x) )/ (torch.max(x) - torch.min(x)) #RSD: Normalise?
+        x = (x - torch.min(x)) / (torch.max(x) - torch.min(x))  # RSD: Normalise?
 
         return x
 
@@ -313,15 +319,19 @@ class Generator3DTomoGAN(nn.Module):
 class TransferredResnet(nn.Module):
     def __init__(self, weights):
         super().__init__()
-        self.resnet = torchvision.models.resnet50(weights=weights)
-        self.feature_list = []
+        resnet = torchvision.models.resnet50(weights=weights)
+        feature_list = []
 
-        for n, c in self.resnet.named_children():
-            self.feature_list.append(c.requires_grad_(False))
+        for n, c in resnet.named_children():
+            feature_list.append(c.requires_grad_(False))
+
+        # self.net = nn.Sequential(
+        #     *self.feature_list[:-2]
+        # )  # Ignore AVG Pool and FC layer
 
         self.net = nn.Sequential(
-            *self.feature_list[:-2]
-        )  # Ignore AVG Pool and FC layer
+            *feature_list[:5]
+        )  # Only first feature extraction. NB: Includes ReLU as final layer
 
         # self.resnet = None
 

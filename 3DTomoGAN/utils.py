@@ -41,14 +41,17 @@ def slice_feature_extraction_loss(feature_extractor, X_perc, Y_perc):
     X_perc = feature_extractor(X_perc)  # N, C, H, W
     Y_perc = feature_extractor(Y_perc)  # N, C, H, W
 
-    # timestamp = time.time()//2**24
-
-    # print(X_perc.shape)
-
-    # save2img(X_perc[0,0].cpu().detach().numpy(), f"X_perc_{timestamp}.png")
-    # save2img(Y_perc[0,0].cpu().detach().numpy(), f"Y_perc_{timestamp}.png")
-
     return mean_squared_error(X_perc.reshape(-1), Y_perc.reshape(-1))
+
+
+def slice_feature_extraction_ssim_loss(feature_extractor, X_perc, Y_perc):
+    X_perc = torch.unsqueeze(X_perc, 0) if len(X_perc.shape) == 3 else X_perc
+    Y_perc = torch.unsqueeze(Y_perc, 0) if len(Y_perc.shape) == 3 else Y_perc
+
+    X_perc = feature_extractor(X_perc)  # N, C, H, W
+    Y_perc = feature_extractor(Y_perc)  # N, C, H, W
+
+    return 1 - torch_ssim(Y_perc, X_perc)
 
 
 def perc_indexer_x(Z, i):
@@ -65,33 +68,23 @@ def perc_indexer_z(Z, i):
 
 def perc_slice_loop(feature_extractor, indexer, preprocess, X, Y, slices):
     loss = 0
-    for i in range(slices):
+    for i in range(slices):  # RSD: Drop loop, instead merge slices into batch dimension
         X_perc = indexer(X, i)
         Y_perc = indexer(Y, i)
 
-        # Y_perc = torch.squeeze(
-        #     torch.stack(
-        #         [Y_perc, Y_perc, Y_perc],
-        #         dim=1,
-        #     )
-        # )
         Y_perc = torch.squeeze(
             Y_perc.expand(Y_perc.shape[0], 3, Y_perc.shape[2], Y_perc.shape[3])
         )
         Y_perc = preprocess(Y_perc)
 
-        # X_perc = torch.squeeze(
-        #     torch.stack(
-        #         [X_perc, X_perc, X_perc],
-        #         dim=1,
-        #     )
-        # )
         X_perc = torch.squeeze(
             X_perc.expand(X_perc.shape[0], 3, X_perc.shape[2], X_perc.shape[3])
         )
         X_perc = preprocess(X_perc)
 
         loss += slice_feature_extraction_loss(feature_extractor, X_perc, Y_perc)
+        # loss += slice_feature_extraction_ssim_loss(feature_extractor, X_perc, Y_perc)
+        # RSD: Now evaluating perceptual loss using SSIM instead of mse. Does it make sense? Or is it smør på flesk
     return loss
 
 
