@@ -44,6 +44,7 @@ def enhance(
 
         if focus:
             a = 256
+            a = 128
 
             rec = torch.from_numpy(np.array(data[key_input]))
             xm, ym, zm = np.array(focus)

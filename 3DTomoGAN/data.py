@@ -59,12 +59,17 @@ flipping_transforms = tio.OneOf(
 basic_transforms = tio.Compose(
     [
         tio.RescaleIntensity((0, 1), include=includes),
-        random_inverse_transform, #RSD: Not when transfer learning
+        random_inverse_transform,  # RSD: Not when transfer learning
         flipping_transforms,
-        tio.RandomAffine(scales=1, degrees=(0, 360, 0, 360, 0, 360), isotropic=True, include=includes),
+        tio.RandomAffine(
+            scales=(1, 1),
+            degrees=(0, 360, 0, 0, 0, 0),
+            isotropic=True,
+            include=includes,
+        ),
     ],
 )
-#RSD: Consider how rotation should be conducted
+# RSD: Consider how rotation should be conducted
 
 advanced_transforms = tio.Compose(
     [
@@ -90,17 +95,14 @@ class Dataset3D(Dataset):
         "advanced": advanced_transforms,
     }
 
-    def __init__(
-        self,
-        filename,
-        img_dir_root,
-        hparams
-    ):
-        self.root = os.path.join(img_dir_root, f"{filename}.h5") 
+    def __init__(self, filename, img_dir_root, hparams):
+        self.root = os.path.join(img_dir_root, f"{filename}.h5")
         self.filename = filename
         self.hparams = hparams
         self.transform = Dataset3D.transforms_dict[hparams["transforms"]]  # [transform]
-        self.target_transform = Dataset3D.transforms_dict[hparams["transforms"]]  # [target_transform]
+        self.target_transform = Dataset3D.transforms_dict[
+            hparams["transforms"]
+        ]  # [target_transform]
 
     def __getitem__(self, index):
         dimensions = h5py.File(self.root, "r")["noisy3D"][str(index).zfill(5)].shape

@@ -122,6 +122,7 @@ args.lmse = hparams["lmse"]
 args.ladv = hparams["ladv"]
 args.itg = hparams["itg"]
 args.itd = hparams["itd"]
+args.lperc = hparams["lperc"]
 
 
 # RSD: Split data into train, val, test
@@ -140,7 +141,7 @@ logging.info("After Splitting: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
 # RSD: Temp reduction of data size due to debugging.
 
-# RSD: Enable shuffling later.
+# RSD: Enable shuffling later. Seems weird that the validation data varies...
 train_dataloader = DataLoader(train_set, batch_size=args.mbsz, shuffle=True)
 val_dataloader = DataLoader(val_set, batch_size=val_size, shuffle=True)
 
@@ -266,22 +267,22 @@ for epoch in range(args.maxiter + 1):
                 Y=Y,
                 slices=X.shape[2],
             )
-            perc_loss += utils.perc_slice_loop(
-                feature_extractor,
-                indexer=utils.perc_indexer_y,
-                preprocess=preprocess,
-                X=X,
-                Y=Y,
-                slices=X.shape[3],
-            )
-            perc_loss += utils.perc_slice_loop(
-                feature_extractor,
-                indexer=utils.perc_indexer_z,
-                preprocess=preprocess,
-                X=X,
-                Y=Y,
-                slices=X.shape[4],
-            )
+            # perc_loss += utils.perc_slice_loop(
+            #     feature_extractor,
+            #     indexer=utils.perc_indexer_y,
+            #     preprocess=preprocess,
+            #     X=X,
+            #     Y=Y,
+            #     slices=X.shape[3],
+            # )
+            # perc_loss += utils.perc_slice_loop(
+            #     feature_extractor,
+            #     indexer=utils.perc_indexer_z,
+            #     preprocess=preprocess,
+            #     X=X,
+            #     Y=Y,
+            #     slices=X.shape[4],
+            # )
 
             generator_loss = (
                 args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
@@ -303,7 +304,8 @@ for epoch in range(args.maxiter + 1):
                 generator_loss.cpu().detach().numpy(),
                 loss_mse.cpu().detach().numpy().mean() * args.lmse,
                 loss_adv.cpu().detach().numpy().mean() * args.ladv,
-                0,  # perc_loss.cpu().detach().numpy().mean() * args.lperc,
+                perc_loss.cpu().detach().numpy().mean()
+                * args.lperc,  # perc_loss.cpu().detach().numpy().mean() * args.lperc,
             )
         )
 
@@ -370,6 +372,7 @@ for epoch in range(args.maxiter + 1):
     generator.requires_grad_(False)
     validation_loss = 0
     ssim_loss = 0
+    ssim_compare = 0
     psnr_loss = 0
 
     with torch.no_grad():
@@ -401,22 +404,22 @@ for epoch in range(args.maxiter + 1):
                 Y=Y,
                 slices=X.shape[2],
             )
-            perc_loss += utils.perc_slice_loop(
-                feature_extractor,
-                indexer=utils.perc_indexer_y,
-                preprocess=preprocess,
-                X=X,
-                Y=Y,
-                slices=X.shape[3],
-            )
-            perc_loss += utils.perc_slice_loop(
-                feature_extractor,
-                indexer=utils.perc_indexer_z,
-                preprocess=preprocess,
-                X=X,
-                Y=Y,
-                slices=X.shape[4],
-            )
+            # perc_loss += utils.perc_slice_loop(
+            #     feature_extractor,
+            #     indexer=utils.perc_indexer_y,
+            #     preprocess=preprocess,
+            #     X=X,
+            #     Y=Y,
+            #     slices=X.shape[3],
+            # )
+            # perc_loss += utils.perc_slice_loop(
+            #     feature_extractor,
+            #     indexer=utils.perc_indexer_z,
+            #     preprocess=preprocess,
+            #     X=X,
+            #     Y=Y,
+            #     slices=X.shape[4],
+            # )
 
             generator_loss = (
                 args.lmse * loss_mse + args.ladv * loss_adv + args.lperc * perc_loss
@@ -436,8 +439,14 @@ for epoch in range(args.maxiter + 1):
             ssim_loss += utils.calc_ssim(
                 Y.cpu().detach().numpy(), X.cpu().detach().numpy()
             )
+            ssim_loss += utils.calc_ssim(
+                Y.cpu().detach().numpy(), X_save.cpu().detach().numpy()
+            )
             psnr_loss += utils.calc_psnr(
                 Y.cpu().detach().numpy(), X.cpu().detach().numpy()
+            )
+            ssim_compare += utils.calc_ssim(
+                Y.cpu().detach().numpy(), X_save.cpu().detach().numpy()
             )
 
     print(
@@ -445,11 +454,13 @@ for epoch in range(args.maxiter + 1):
         % (epoch, validation_loss / len(val_dataloader))
     )  # RSD ++ Accuracy or PSNR or SSIM
     print(
-        "[Info] Epoch: %05d, Validation ssim: %.2f \n"
-        % (epoch, ssim_loss / len(val_dataloader))
+        "[Info] Epoch: %05d, Validation ssim: %.2f (%.2f)\n"
+        % (epoch, ssim_loss / len(val_dataloader), ssim_compare / len(val_dataloader))
     )
 
-    logging.info(f"Validation ssim: {ssim_loss/len(val_dataloader)}")
+    logging.info(
+        f"Validation ssim: {ssim_loss/len(val_dataloader)} ({ssim_compare / len(val_dataloader)})"
+    )
 
     x_axis.append(len(train_loss))
     val_loss.append(validation_loss / len(val_dataloader))
@@ -525,7 +536,7 @@ for epoch in range(args.maxiter + 1):
         pass
 
     finally:
-        plt.plot(train_loss, label="train")
+        # plt.plot(train_loss, label="train")
         plt.plot(x_axis, val_loss, label="validation")
         plt.legend()
         plt.savefig("%s/loss.png" % (itr_out_dir))
