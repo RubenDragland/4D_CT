@@ -516,7 +516,7 @@ class EquinorDynamicCT(EquinorDataCT):
         rec = self.methods[method](data, geo, angles, gpuids=gpuids)
         return rec
 
-    def reconstruct_idx(self, idx, method="fdk"):
+    def reconstruct_idx(self, idx, method="fdk", CoR=None):
         with h5py.File(os.path.join(self.root, f"{self.name}.h5"), "r") as f:
             data = np.squeeze(
                 f[ReconstructionsDataCT.EQNR_PROJECTIONS][str(idx).zfill(5)]
@@ -526,8 +526,9 @@ class EquinorDynamicCT(EquinorDataCT):
         with open(os.path.join(self.root, f"{self.name}.pkl"), "rb") as g:
             geo = pkl.load(g)
 
-        print(geo)
-        print(angles)
+        if CoR is not None:
+            geo.COR = CoR
+
         rec = self.reconstruct_group(data, angles, geo, method=method)
         return rec
 
@@ -557,6 +558,7 @@ class EquinorDynamicCT(EquinorDataCT):
 
         return data, angles, geo
 
+    # RSD: All the params were not necessary...
     def save_custom(self, rec, idx, fibonacci, method, name):
         with h5py.File(self.full_path, "a") as o:
             o.create_dataset(
@@ -566,9 +568,13 @@ class EquinorDynamicCT(EquinorDataCT):
         return
 
     def reconstruct_custom(
-        self, idx, fibonacci, method="fdk", name=None, return_data=False
+        self, idx, fibonacci, method="fdk", name=None, return_data=False, CoR=None
     ):
         data, angles, geo = self.make_projection_group(idx, fibonacci)
+
+        if CoR is not None:
+            geo.COR = CoR
+
         rec = self.reconstruct_group(data, angles, geo, method=method)
 
         if name is None:
@@ -580,7 +586,7 @@ class EquinorDynamicCT(EquinorDataCT):
             self.save_custom(rec, idx, fibonacci, method, name)
             return
 
-    def reconstruct_custom_4D(self, idx, fibonacci, method="fdk", name=None):
+    def reconstruct_custom_4D(self, idx, fibonacci, method="fdk", name=None, CoR=None):
         if name is None:
             name = f"4D_{fibonacci}_{method}"
 
@@ -600,6 +606,8 @@ class EquinorDynamicCT(EquinorDataCT):
             if idx + fibonacci >= timestamps:
                 break
             data, angles, geo = self.make_projection_group(idx, fibonacci)
+            if CoR is not None:
+                geo.COR = CoR
             rec = self.reconstruct_group(data, angles, geo, method=method)
             self.add_undersampled_rec(rec, idx, group=name)
         return
@@ -719,7 +727,9 @@ class EquinorReconstructions(ReconstructionsDataCT):
 
         finally:
             data = data.astype(np.float32)
-            data = (data - np.min(data)) / (np.max(data) - np.min(data))
+            data = (data - np.min(data)) / (
+                np.max(data) - np.min(data)
+            )  # RSD: Do not normalise. Done in the network.
             o[ReconstructionsDataCT.TARGET_KEY].create_dataset(
                 f"{str(idx).zfill(5)}", data=data
             )
