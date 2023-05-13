@@ -132,7 +132,6 @@ def calc_ssim(I, J, c1=0.01**2, c2=0.03**2):
     var_J = np.var(J)
 
     cov_IJ = np.mean((I - mean_I) * (J - mean_J))
-    print(cov_IJ)
 
     ssim = (
         (2 * mean_I * mean_J + c1)
