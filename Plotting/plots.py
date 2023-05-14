@@ -51,8 +51,8 @@ mpl.rcParams["xtick.minor.width"] = w / 2
 mpl.rcParams["ytick.major.width"] = w
 mpl.rcParams["ytick.minor.width"] = w / 2
 
-mpl.rcParams["lines.markersize"] = 6
-mpl.rcParams["lines.linewidth"] = 3
+mpl.rcParams["lines.markersize"] = 6 * w
+mpl.rcParams["lines.linewidth"] = 2 * w
 mpl.rcParams["font.size"] = 12
 mpl.rcParams["legend.fontsize"] = 14
 mpl.rcParams["figure.titlesize"] = 20
