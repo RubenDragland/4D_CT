@@ -663,9 +663,6 @@ class EquinorDynamicCT(EquinorDataCT):
             timestamps[i] = self.load_4plot_slice(name, idxs, idx=i)
         return timestamps
 
-    def merge_datasets(self):
-        pass
-
 
 class EquinorReconstructions(ReconstructionsDataCT):
     """

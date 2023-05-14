@@ -18,8 +18,8 @@ def main():
     ]
     oroot = r"/home/rubensd/Documents/DeepLearning/ReconstructionData"
 
-    fibonaccis = [1, 1, 1, 55, 1]
-    name = "Fibonacci1"
+    fibonaccis = [3, 3, 3, 55, 1]
+    name = "Fibonacci3"
 
     for i in tqdm.trange(len(expnames)):
         expname = expnames[i]
