@@ -113,6 +113,7 @@ logging.info("Before loading: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 full_dataset = Dataset3D(
     args.dsfn, args.dsfolder, hparams
 )  # RSD: Include hparams. First test.
+# val_set = Dataset3D("industrial_sandstone_dataset", args.dsfolder, hparams)
 
 
 args.lrateg = hparams["lrateg"]
@@ -125,6 +126,7 @@ args.itd = hparams["itd"]
 args.lperc = hparams["lperc"]
 
 
+# RSD: Import representative val_data
 # RSD: Split data into train, val, test
 train_size = int(data_hparams["train_split"] * len(full_dataset))
 # train_size = 6
@@ -143,7 +145,7 @@ logging.info("After Splitting: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
 # RSD: Enable shuffling later. Seems weird that the validation data varies...
 train_dataloader = DataLoader(train_set, batch_size=args.mbsz, shuffle=True)
-val_dataloader = DataLoader(val_set, batch_size=val_size, shuffle=True)
+val_dataloader = DataLoader(val_set, batch_size=args.mbsz, shuffle=True)
 
 mem = torch.cuda.mem_get_info()
 logging.info("After loading: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
@@ -186,17 +188,16 @@ logging.info("Loaded perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
 # Define optimizers
 
-gen_optim = torch.optim.Adam(generator.parameters(), lr=args.lrateg)
-disc_optim = torch.optim.Adam(discriminator.parameters(), lr=args.lrated)
+gen_optim = torch.optim.Adam(generator.parameters(), lr=args.lrateg / 10)
+disc_optim = torch.optim.Adam(discriminator.parameters(), lr=args.lrated / 10)
 
-# Introduce lr scheduler
-# gen_scheduler = torch.optim.lr_scheduler.StepLR(
-#     gen_optim, step_size=1000, gamma=0.1
-# )
-# disc_scheduler = torch.optim.lr_scheduler.StepLR(
-#     disc_optim, step_size=1000, gamma=0.1
-# )
 
+gen_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    gen_optim, T_max=args.maxiter, eta_min=args.lrateg
+)
+disc_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    disc_optim, T_max=args.maxiter, eta_min=args.lrated
+)
 
 x_axis = []
 train_loss = []
@@ -205,6 +206,10 @@ mse_list = []
 adv_list = []
 ssim_list = []
 psnr_list = []
+
+loss_adv = torch.zeros(1)
+generator_loss = torch.zeros(1)
+discriminator_loss = torch.zeros(1)
 
 
 for epoch in range(args.maxiter + 1):
@@ -218,7 +223,8 @@ for epoch in range(args.maxiter + 1):
         len(train_dataloader) >= args.itg + args.itd
     ), "Not enough data to perform desired epoch."
 
-    while training_iter + args.itg + args.itd <= len(train_dataloader):
+    # while training_iter + args.itg + args.itd <= len(train_dataloader):
+    while training_iter < len(train_dataloader):
         time_git_st = time.time()
 
         gen_optim.zero_grad()
@@ -227,16 +233,8 @@ for epoch in range(args.maxiter + 1):
         generator.train()
         generator.requires_grad_(True)
 
-        for _ge in range(args.itg):
-            # RSD: Notice that iterations generator and discriminator are not utilised in this version. Complete the dataloader instead. Will have to check if this works.
-            # for _ge, data in enumerate(train_dataloader, 0):
-            # Train Generator
-            # Generate fake images
-            # Calculate loss
-            # Backpropagate
-            # Clip weights
-            # Update weights
-
+        # for _ge in range(args.itg):
+        while training_iter < len(train_dataloader) - 1:
             training_iter += 1
 
             X, Y = next(iter(train_dataloader))
@@ -291,8 +289,12 @@ for epoch in range(args.maxiter + 1):
                 f"Generator loss: {generator_loss.cpu().detach().numpy()} MSE: {loss_mse.cpu().detach().numpy()} Adv: {loss_adv.cpu().detach().numpy()} Perc: {perc_loss.cpu().detach().numpy()}"
             )
 
-            generator_loss.backward()
-            gen_optim.step()
+            if generator_loss < args.lmse * args.ladv * 1000:
+                generator_loss.backward()
+                gen_optim.step()
+
+            if generator_loss < args.lmse * args.ladv / args.itg:
+                break
 
         # del X_vgg, Y_vgg
 
@@ -326,7 +328,9 @@ for epoch in range(args.maxiter + 1):
             "Before discriminator: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024)
         )
 
-        for _de in range(args.itd):
+        # RSD: Remember to fully implement how this is supposed to work.
+        # for _de in range(args.itd):
+        while training_iter < len(train_dataloader):
             training_iter += 1
             X, Y = next(iter(train_dataloader))
             X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
@@ -350,6 +354,9 @@ for epoch in range(args.maxiter + 1):
                 f"Discriminator grad:{ [discriminator.layers[i].weight.grad.max().cpu().detach().numpy() for i in range(0, 7, 2)]}"
             )
             disc_optim.step()
+
+            if discriminator_loss < 2 / args.itd:
+                break
 
         disc_optim.zero_grad()
 
@@ -438,9 +445,6 @@ for epoch in range(args.maxiter + 1):
             validation_loss += generator_loss.cpu().detach().numpy().mean()
             ssim_loss += utils.calc_ssim(
                 Y.cpu().detach().numpy(), X.cpu().detach().numpy()
-            )
-            ssim_loss += utils.calc_ssim(
-                Y.cpu().detach().numpy(), X_save.cpu().detach().numpy()
             )
             psnr_loss += utils.calc_psnr(
                 Y.cpu().detach().numpy(), X.cpu().detach().numpy()

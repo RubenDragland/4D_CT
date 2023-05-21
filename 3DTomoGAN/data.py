@@ -63,7 +63,7 @@ basic_transforms = tio.Compose(
         flipping_transforms,
         tio.RandomAffine(
             scales=(1, 1),
-            degrees=(0, 360, 0, 0, 0, 0),
+            degrees=(0, 360, 0, 360, 0, 360),
             isotropic=True,
             include=includes,
         ),
@@ -158,6 +158,7 @@ class Dataset3D(Dataset):
             )
         )
 
+    # More variation with uniform sampling.
     def random_crop_h5py(self, dimensions: tuple, size: int, gaussian=True) -> tuple:
         def find_bounds(dimensions, size):
             low = -dimensions // 2 + size // 2 + 1
@@ -182,14 +183,15 @@ class Dataset3D(Dataset):
             crop_y = normal_crop(rng, dimensions[1], size)
             crop_z = normal_crop(rng, dimensions[2], size)
         else:
-            crop_x = rng.uniform(*find_bounds(dimensions[0], size))
-            crop_y = rng.uniform(*find_bounds(dimensions[1], size))
-            crop_z = rng.uniform(*find_bounds(dimensions[2], size))
+            crop_x = int(rng.uniform(*find_bounds(dimensions[0], size)))
+            crop_y = int(rng.uniform(*find_bounds(dimensions[1], size)))
+            crop_z = int(rng.uniform(*find_bounds(dimensions[2], size)))
 
         crop_x = dimensions[0] // 2 + crop_x
         crop_y = dimensions[1] // 2 + crop_y
         crop_z = dimensions[2] // 2 + crop_z
         # RSD: Hope within bounds
+        # RSD:print when training to look at distribution. Too narrow? Go for uniform now?
 
         return crop_x, crop_y, crop_z
 
