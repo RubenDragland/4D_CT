@@ -37,6 +37,7 @@ class ReconstructionsDataCT:
         self.methods = {
             "fdk": algs.fdk,
             "sirt": algs.sirt,
+            "sart": algs.sart,
             # "osem": algs.osem,
             # RSD: TODO: Add more methods
         }
@@ -180,7 +181,7 @@ class TigreGeometry:
 
         self.geo.accuracy = 0.5  # Accuracy of FWD proj    (vx/sample)
 
-        self.geo.COR = 0
+        self.geo.COR = 0.0
 
         self.geo.rotDetector = self.values["rotation"]  # Rotation of detector
 
@@ -228,8 +229,8 @@ class MicroGeometry(TigreGeometry):
 
     def __init__(self):
         self.values = {
-            "DSD": 502,  # 72  # Distance Source Detector (mm)
-            "DSO": 47,  # Distance Source Origin (mm)
+            "DSD": 502.0,  # 72  # Distance Source Detector (mm)
+            "DSO": 47.0,  # Distance Source Origin (mm)
             "nDetector": np.array([1920, 1536]),  # number of pixels (px)
             "dDetector": np.array([0.127, 0.127]),  # size of each pixel (mm)
             "dVoxel": np.array(
@@ -380,7 +381,13 @@ class TomoBankPhantomCT(ReconstructionsDataCT):
         geo.rotDetector = np.array([0, 0, 0])
         # RSD: Reconstruction
         # rec = algs.fdk(projs, geo, angles, gpuids=gpuids)
-        rec = self.methods[method](projs, geo, angles, gpuids=gpuids)
+        # rec = self.methods[method](projs, geo, angles, gpuids=gpuids)
+
+        if method == "fdk":
+            rec = self.methods[method](projs, geo, angles, gpuids=gpuids)
+        else:
+            rec = self.methods[method](projs, geo, angles, niter=20, gpuids=gpuids)
+
         rec = (rec - np.min(rec)) / (np.max(rec) - np.min(rec))
 
         o[ReconstructionsDataCT.NOISY_KEY].create_dataset(
@@ -513,7 +520,13 @@ class EquinorDynamicCT(EquinorDataCT):
         listGpuNames = gpu.getGpuNames()
         gpuids = gpu.getGpuIds(listGpuNames[0])
 
-        rec = self.methods[method](data, geo, angles, gpuids=gpuids)
+        # rec = self.methods[method](data, geo, angles, gpuids=gpuids)
+
+        if method == "fdk":
+            rec = self.methods[method](data, geo, angles, gpuids=gpuids)
+        else:
+            kwargs = {"niter": 20}
+            rec = self.methods[method](data, geo, angles, gpuids=gpuids, **kwargs)
         return rec
 
     def reconstruct_idx(self, idx, method="fdk", CoR=None):
@@ -760,7 +773,12 @@ class EquinorReconstructions(ReconstructionsDataCT):
         plt.imshow(projs[0], cmap="gray")
         plt.show()
 
-        rec = self.methods[method](projs, geo, angles, gpuids=gpuids)
+        if method == "fdk":
+            rec = self.methods[method](projs, geo, angles, gpuids=gpuids)
+        else:
+            niter = 20
+            rec = self.methods[method](projs, geo, angles, niter, gpuids=gpuids)
+
         o[ReconstructionsDataCT.NOISY_KEY].create_dataset(
             f"{str(idx).zfill(5)}", data=rec
         )
