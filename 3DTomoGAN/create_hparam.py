@@ -5,19 +5,19 @@ import json
 import os
 
 hparams = {
-    "name": "optimised_perc",
+    "name": "sim_data_continued",
     "lmse": 5,
-    "ladv": 5,
-    "lperc": 10,
+    "ladv": 10,
+    "lperc": 0,
     "psz": 128,
     "mbsz": 1,
     "itg": 2,
     "itd": 1,
     "lrateg": 1e-4,
     "lrated": 2e-4,
-    "train_split": 0.85,
+    "train_split": 0.88,
     "transforms": "basic",
-    "transfer_model": None,
+    "transfer_model": "simV1_it00500_gen",
 }
 
 if __name__ == "__main__":
