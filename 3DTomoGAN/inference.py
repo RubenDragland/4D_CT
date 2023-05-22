@@ -126,6 +126,7 @@ def enhance(
 
                 for j, (xj, yj, zj) in tqdm.tqdm(enumerate(zip(X, Y, Z))):
                     rec_dv = rec[:, xj : xj + a, yj : yj + a, zj : zj + a]
+                    # RSD: NB! Not normalised input.
 
                     # Enhance
 
