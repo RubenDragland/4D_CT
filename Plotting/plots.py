@@ -15,6 +15,7 @@ from scipy.special import sph_harm
 from matplotlib import cm
 from matplotlib.colors import ListedColormap, LinearSegmentedColormap, TwoSlopeNorm
 from matplotlib.colors import LogNorm
+from matplotlib.gridspec import GridSpec
 
 
 # print(plt.style.available)
@@ -189,3 +190,265 @@ XRDCT_cyclic_cmp = get_continuous_cmap(
         "#1F449C",
     ]
 )
+
+XRDCT_diverging_cmp = get_continuous_cmap(["#1F449C", "#FFFFFF", "#F05039"])
+
+
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+import matplotlib.patheffects as PathEffects
+
+
+def add_scalebar(ax, **kwargs):
+    if "scalebar_kwargs" not in kwargs:
+        size = 25 / (0.2 * 930) * 1350
+
+        scale_kwargs = {
+            "size": size,
+            "label": f"25.0 mm",
+            "color": "white",
+            "loc": 4,
+            "frameon": False,
+            "size_vertical": 8,
+            "label_top": False,
+            # "font_properties": {"size": 12}
+        }
+    else:
+        scale_kwargs = kwargs["scalebar_kwargs"]
+
+    scalebar0 = AnchoredSizeBar(ax.transData, **scale_kwargs)
+    scalebar0.txt_label._text.set_path_effects(
+        [PathEffects.withStroke(linewidth=2, foreground="black", capstyle="round")]
+    )
+    ax.add_artist(scalebar0)
+    return ax
+
+
+def plot_slice_grid(
+    imgs: list,
+    titles: list,
+    suptitle=None,
+    savefile=None,
+    savefig=False,
+    fig=None,
+    folder="Golden Angle",
+    bar=False,
+    cm=None,
+    fs=None,
+    ns=None,
+    scalebar_kwargs=None,
+):
+    choose_formatter(False)
+    if cm is None:
+        cmap = "gray"
+    else:
+        cmap = cm
+
+    def grids(n):
+        if n <= 3:
+            return 1, n
+        n_sqrt = np.sqrt(n)
+        if n_sqrt % 1 == 0:
+            return int(n_sqrt), int(n_sqrt)
+        else:
+            assert n % 3 == 0
+            return n // 3, 3
+
+    n1, n2 = ns if ns is not None else grids(len(imgs))
+
+    f1, f2 = fs if fs is not None else (n1, n2)
+
+    fig = plt.figure(figsize=(f2 * DEFAULT_FIGSIZE[1], f1 * DEFAULT_FIGSIZE[1]))
+    gs = GridSpec(n1, n2, figure=fig, wspace=0, hspace=0.0)
+    axes = np.array(
+        [[fig.add_subplot(gs[j, i]) for i in range(n2)] for j in range(n1)]
+    ).reshape(-1)
+
+    for i in range(len(imgs)):
+        im = axes[i].imshow(imgs[i], cmap=cmap)
+        axes[i].set_title(titles[i])
+        axes[i].axis("off")
+        if bar and scalebar_kwargs is not None:
+            axes[i] = add_scalebar(axes[i], scalebar_kwargs=scalebar_kwargs)
+        elif bar:
+            axes[i] = add_scalebar(axes[i])
+    if suptitle is not None:
+        plt.suptitle(suptitle)
+    if cm is not None:
+        limits = [np.abs(img).max() for img in imgs]
+        vmin = np.min([img.min() for img in imgs])
+        vmax = np.max([img.max() for img in imgs])
+
+        vmin = -np.max(limits)
+        vmax = np.max(limits)
+
+        norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+
+        fig.colorbar(
+            mpl.cm.ScalarMappable(
+                norm=norm,
+                cmap=cmap,
+            ),
+            orientation="horizontal",
+            ax=[axes[i] for i in range(len(imgs))],
+            label="Intensity Difference [a.u.]",
+        )
+
+        for i in range(len(imgs)):
+            im = axes[i].imshow(imgs[i], cmap=cmap, vmin=vmin, vmax=vmax)
+            axes[i].set_title(titles[i])
+            axes[i].axis("off")
+
+    if savefig:
+        plt.savefig(f"../Results/{folder}/{savefile}.pdf", format="pdf")
+
+    plt.show()
+
+
+def plot_line_profile(
+    imgs,
+    labels,
+    crossections,
+    idxs=None,
+    savefile=None,
+    savefig=False,
+    folder="Golden Angle",
+    title="Line Profile of RoI",
+):
+    if idxs is None:
+        x1, x2, y1, y2 = 300, 300, 300, 400
+    else:
+        x1, x2, y1, y2 = idxs
+
+    fig = plt.figure(figsize=(DEFAULT_FIGSIZE[0], DEFAULT_FIGSIZE[1]))
+    gs = fig.add_gridspec(4, 1)
+    ax1 = fig.add_subplot(gs[0])
+    ax2 = fig.add_subplot(gs[1:])
+    # ax3 = fig.add_subplot(gs[3:5])
+
+    ax1.imshow(crossections, cmap="gray")
+    ax1.plot([y1, y2], [x1, x2], c="red", linewidth=2, alpha=0.75, label="RoI")
+    ax1.set_title(title)
+    ax1.set_axis_off()
+
+    for i, (img, lab) in enumerate(zip(imgs, labels)):
+        ax2.plot(img[x1, y1:y2], linewidth=1.5, alpha=0.75, label=lab)
+
+    ax2.plot(
+        crossections[x1, y1:y2],
+        "-",
+        linewidth=1.5,
+        c="black",
+        alpha=1,
+        label="Ground Truth",
+    )
+    ax2.legend(
+        bbox_to_anchor=(0.5, -0.25),
+        loc="upper center",
+        ncol=2,
+        fancybox=True,
+        shadow=False,
+    )
+
+    ax2.set_xlabel("Pixel")
+    ax2.set_ylabel("Normalised Intensity [a.u.]")
+
+    if savefig:
+        plt.savefig(f"../Results/{folder}/{savefile}.pdf", format="pdf")
+
+    plt.show()
+
+
+def plot_fsc(
+    outputs,
+    outputs_enhanced,
+    uniques,
+    fq_keys,
+    filter=50,
+    ylabel1="FSC Input",
+    ylabel2="FSC Output",
+    save=False,
+    folder="Hourglass4D",
+    savefile="FSC",
+    xlim=None,
+):
+    # fig, (ax, axe) = plt.subplots(1, 2)
+    fig = plt.figure(figsize=(DEFAULT_FIGSIZE[0], DEFAULT_FIGSIZE[1]))
+    gs = fig.add_gridspec(5, 2)
+    ax = fig.add_subplot(gs[1:, 0])
+    axe = fig.add_subplot(gs[1:, 1])
+
+    ax.set_xlabel("Spatial Frequency")
+    ax.set_ylabel(ylabel1)
+    # ax.set_xlim(0, 100)
+    axe.set_xlabel("Spatial Frequency")
+    axe.set_ylabel(ylabel2)
+
+    for i, (fscr, uniques) in enumerate(outputs):
+        # ax.plot(uniques, fscr.real, label="13 Projections")
+        ax.plot(
+            uniques[filter:-filter],
+            [
+                np.mean(fscr.real[i - filter : i + filter])
+                for i in range(filter, len(fscr.real) - filter)
+            ],
+            label=fq_keys[i],
+        )
+
+    # ax.legend()
+
+    for i, (fscr, uniques) in enumerate(outputs_enhanced):
+        axe.plot(
+            uniques[filter:-filter],
+            [
+                np.mean(fscr.real[i - filter : i + filter])
+                for i in range(filter, len(fscr.real) - filter)
+            ],
+            label=fq_keys[i],
+        )
+
+    # axe.legend()
+
+    ax.set_ylim(0, 1)
+    axe.set_ylim(0, 1)
+
+    # ax.legend(
+    #     bbox_to_anchor=(0.35, 1.25),
+    #     loc="upper left",
+    #     ncol=3,
+    #     fancybox=True,
+    #     shadow=False,
+    # )
+
+    # fig.add_artist(
+    #     ax.legend(
+    #         # bbox_to_anchor=(0.35, 1.25),
+    #         # loc="upper left",
+    #         ncol=3,
+    #         fancybox=True,
+    #         shadow=False,
+    #     )
+    # )
+
+    handles = ax.get_legend_handles_labels()[0]
+    labels = ax.get_legend_handles_labels()[1]
+
+    ledge = fig.add_subplot(gs[0, :])  # .axis("off")
+    ledge.axis("off")
+    ledge.legend(
+        handles,
+        labels,
+        bbox_to_anchor=(0.5, 0.5),
+        loc="center",
+        ncol=5,
+        fancybox=True,
+        shadow=False,
+    )
+
+    if xlim is not None:
+        ax.set_xlim(xlim)
+        axe.set_xlim(xlim)
+
+    if save:
+        plt.savefig(rf"../Results/{folder}/{savefile}.pdf", format="pdf")
+
+    plt.show()
