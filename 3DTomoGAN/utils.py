@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 import numpy as np
 import time
+import scipy as sp
+import tqdm as tqdm
+import torch.nn.functional as F
 
 import imageio
 
@@ -146,3 +149,172 @@ def calc_psnr(I, J):
     max_val = np.max(I)
     psnr = 10 * np.log10(max_val**2 / mse)
     return psnr
+
+
+def calc_mssim(I, J, c1=0.01**2, c2=0.03**2, k=11):
+    """
+    Mean-SSIM, Retrieved from SSIM-PyTorch on Github
+    """
+
+    def gaussian(window_size, sigma):
+        import math
+
+        """
+        Generates a list of Tensor values drawn from a gaussian distribution with standard
+        diviation = sigma and sum of all elements = 1.
+
+        Length of list = window_size
+        """
+        gauss = torch.Tensor(
+            [
+                math.exp(-((x - window_size // 2) ** 2) / float(2 * sigma**2))
+                for x in range(window_size)
+            ]
+        )
+        return gauss / gauss.sum()
+
+    def create_window(window_size, channel=1):
+        # Generate an 1D tensor containing values sampled from a gaussian distribution
+        _1d_window = gaussian(window_size=window_size, sigma=1.5).unsqueeze(1)
+
+        # Converting to 2D
+        _2d_window = _1d_window.mm(_1d_window.t()).float().unsqueeze(0).unsqueeze(0)
+
+        window = torch.Tensor(
+            _2d_window.expand(channel, 1, window_size, window_size).contiguous()
+        )
+
+        return window
+
+    def ssim(
+        img1,
+        img2,
+        val_range,
+        window_size=11,
+        window=None,
+        size_average=True,
+        full=False,
+    ):
+        L = val_range  # L is the dynamic range of the pixel values (255 for 8-bit grayscale images),
+
+        pad = window_size // 2
+
+        try:
+            _, channels, height, width = img1.size()
+        except:
+            channels, height, width = img1.size()
+
+        # if window is not provided, init one
+        if window is None:
+            real_size = min(
+                window_size, height, width
+            )  # window should be atleast 11x11
+            window = create_window(real_size, channel=channels).to(img1.device)
+
+        # calculating the mu parameter (locally) for both images using a gaussian filter
+        # calculates the luminosity params
+        mu1 = F.conv2d(img1, window, padding=pad, groups=channels)
+        mu2 = F.conv2d(img2, window, padding=pad, groups=channels)
+
+        mu1_sq = mu1**2
+        mu2_sq = mu2**2
+        mu12 = mu1 * mu2
+
+        # now we calculate the sigma square parameter
+        # Sigma deals with the contrast component
+        sigma1_sq = F.conv2d(img1 * img1, window, padding=pad, groups=channels) - mu1_sq
+        sigma2_sq = F.conv2d(img2 * img2, window, padding=pad, groups=channels) - mu2_sq
+        sigma12 = F.conv2d(img1 * img2, window, padding=pad, groups=channels) - mu12
+
+        # Some constants for stability
+        C1 = (0.01) ** 2  # NOTE: Removed L from here (ref PT implementation)
+        C2 = (0.03) ** 2
+
+        contrast_metric = (2.0 * sigma12 + C2) / (sigma1_sq + sigma2_sq + C2)
+        contrast_metric = torch.mean(contrast_metric)
+
+        numerator1 = 2 * mu12 + C1
+        numerator2 = 2 * sigma12 + C2
+        denominator1 = mu1_sq + mu2_sq + C1
+        denominator2 = sigma1_sq + sigma2_sq + C2
+
+        ssim_score = (numerator1 * numerator2) / (denominator1 * denominator2)
+
+        if size_average:
+            ret = ssim_score.mean()
+        else:
+            ret = ssim_score.mean(1).mean(1).mean(1)
+
+        if full:
+            return ret, contrast_metric
+
+        return ret
+
+    window = create_window(k, 1)
+
+    tensortransform = lambda x: torch.from_numpy(x).unsqueeze(0)
+
+    I = tensortransform(I)
+    J = tensortransform(J)
+
+    mssim, contrasts = ssim(
+        I, J, 1.0, window=window, window_size=k, size_average=True, full=True
+    )
+
+    mssim = mssim.item()
+    contrasts = contrasts.item()
+
+    return mssim, contrasts
+
+
+def FSC(gt, elem, sizes=(256, 256, 256)):
+    gt_k = sp.fft.fftshift(sp.fft.fftn(gt)).flatten()
+    elem_k = sp.fft.fftshift(sp.fft.fftn(elem)).flatten()
+
+    X, Y, Z = np.meshgrid(np.arange(sizes[0]), np.arange(sizes[1]), np.arange(sizes[2]))
+
+    radius = np.sqrt(
+        (X - sizes[0] // 2) ** 2 + (Y - sizes[1] // 2) ** 2 + (Z - sizes[2] // 2) ** 2
+    ).flatten()
+
+    uniques = np.unique(radius)
+    print(uniques.shape)
+
+    gt_dict = {}
+    elem_dict = {}
+    for u in uniques:
+        gt_dict[u] = []
+        elem_dict[u] = []
+
+    for i, u in enumerate(tqdm.tqdm(radius)):
+        gt_dict[u].append(gt_k[i])
+        elem_dict[u].append(elem_k[i])
+
+    uniques = np.sort(uniques)
+
+    FSCR = np.zeros_like(uniques, dtype=np.complex64)
+
+    for i, u in enumerate(tqdm.tqdm(uniques)):
+        # gt_kr = gt_k[np.where(radius == u)]
+        # elem_kr = elem_k[np.where(radius == u)]
+        gt_kr = np.array(gt_dict[u])
+        elem_kr = np.array(elem_dict[u])
+
+        upper = np.sum(gt_kr * np.conj(elem_kr))
+
+        lower = np.sqrt(np.sum(np.abs(gt_kr) ** 2) * np.sum(np.abs(elem_kr) ** 2))
+
+        FSCR[i] = upper / lower
+
+    return FSCR, uniques
+
+
+def evaluate_recs(x, y, normalise=False):
+    # Normalises between 0 and 1
+    if normalise:
+        x = (x - np.min(x)) / (np.max(x) - np.min(x))
+        y = (y - np.min(y)) / (np.max(y) - np.min(y))
+
+    ssim = calc_ssim(x, y)
+    psnr = calc_psnr(x, y)
+    return ssim, psnr

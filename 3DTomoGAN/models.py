@@ -311,7 +311,9 @@ class Generator3DTomoGAN(nn.Module):
         x = torch.cat((x, skip_connections.pop()), dim=1)
         x = self.net_up3(x)
 
-        x = (x - torch.min(x)) / (torch.max(x) - torch.min(x))  # RSD: Normalise?
+        x = (x - torch.min(x)) / (
+            torch.max(x) - torch.min(x)
+        )  # RSD: Normalise? Should not Sigmoid be better? But vanishing gradients...
 
         return x
 
