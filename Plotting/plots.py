@@ -294,7 +294,15 @@ def plot_slice_grid(
         )
 
         for i in range(len(imgs)):
-            im = axes[i].imshow(imgs[i], cmap=cmap, vmin=vmin, vmax=vmax)
+            print(titles[i])
+            print(imgs[i].min(), imgs[i].max())
+            im = axes[i].imshow(
+                imgs[i],
+                cmap=cmap,
+                # norm=norm,
+                vmin=vmin,
+                vmax=vmax,
+            )
             axes[i].set_title(titles[i])
             axes[i].axis("off")
 
@@ -331,7 +339,7 @@ def plot_line_profile(
     ax1.set_axis_off()
 
     for i, (img, lab) in enumerate(zip(imgs, labels)):
-        ax2.plot(img[x1, y1:y2], linewidth=1.5, alpha=0.75, label=lab)
+        ax2.plot(img[x1, y1:y2], "-", linewidth=1.5, alpha=0.75, label=lab)
 
     ax2.plot(
         crossections[x1, y1:y2],
