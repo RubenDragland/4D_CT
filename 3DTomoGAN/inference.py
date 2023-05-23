@@ -10,7 +10,14 @@ import utils
 
 
 def enhance(
-    model_path, model_name, data_folder, data_name, key_input, key_target="gt", focus=0
+    model_path,
+    model_name,
+    data_folder,
+    data_name,
+    key_input,
+    key_target="gt",
+    focus=0,
+    dims=0,
 ):
     # Load model
     model = Generator3DTomoGAN()
@@ -26,7 +33,6 @@ def enhance(
         # Visualisation
         # items = list(data[key_input].keys()).__len__()
         items = 1
-        sl = 256
 
         # RSD: While debugging.
 
@@ -43,15 +49,17 @@ def enhance(
         # fig, ax = plt.subplots(4, items, figsize=(15, 5 * items))
 
         if focus:
-            a = 256
-            a = 128
+            if dims == 0:
+                ax, ay, az = 256, 256, 256
+            else:
+                ax, ay, az = dims
 
             rec = torch.from_numpy(np.array(data[key_input]))
             xm, ym, zm = np.array(focus)
             rec = rec[
-                xm - a // 2 : xm + a // 2,
-                ym - a // 2 : ym + a // 2,
-                zm - a // 2 : zm + a // 2,
+                xm - ax // 2 : xm + ax // 2,
+                ym - ay // 2 : ym + ay // 2,
+                zm - az // 2 : zm + az // 2,
             ]
             rec = tio.RescaleIntensity((0, 1))(rec.unsqueeze(0)).to(device)
             rec_enhanced = torch.zeros_like(rec).to(device)
@@ -67,9 +75,9 @@ def enhance(
 
             gt = torch.from_numpy(np.array(data[key_target]))
             gt = gt[
-                xm - a // 2 : xm + a // 2,
-                ym - a // 2 : ym + a // 2,
-                zm - a // 2 : zm + a // 2,
+                xm - ax // 2 : xm + ax // 2,
+                ym - ay // 2 : ym + ay // 2,
+                zm - az // 2 : zm + az // 2,
             ]
             gt = tio.RescaleIntensity((0, 1))(gt.unsqueeze(0)).to(device)
             rec_enhanced = tio.RescaleIntensity((0, 1))(
@@ -227,6 +235,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "-focus", type=int, required=False, nargs="+", default=0, help="Centre RoI"
     )
+    parser.add_argument(
+        "-dims", type=int, required=False, nargs="+", default=0, help="Dimensions"
+    )
 
     args, unparsed = parser.parse_known_args()
 
@@ -240,4 +251,5 @@ if __name__ == "__main__":
         args.keyInput,
         key_target=args.keyTarget,
         focus=args.focus,
+        dims=args.dims,
     )
