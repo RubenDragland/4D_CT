@@ -525,7 +525,8 @@ class EquinorDynamicCT(EquinorDataCT):
         if method == "fdk":
             rec = self.methods[method](data, geo, angles, gpuids=gpuids)
         else:
-            kwargs = {"niter": 20}
+            kwargs = {"niter": 150}
+            data = np.asarray(data, dtype=np.float32)
             rec = self.methods[method](data, geo, angles, gpuids=gpuids, **kwargs)
         return rec
 
@@ -579,6 +580,20 @@ class EquinorDynamicCT(EquinorDataCT):
                 data=rec,
             )
         return
+
+    def delete_reconstruction(self, idx, fibonacci, method, name=None):
+        if name is None:
+            name = f"Rec_{idx}_{fibonacci}_{method}"
+        try:
+            with h5py.File(self.full_path, "a") as o:
+                del o[name]
+        except KeyError:
+            "Failed to delete reconstruction"
+        finally:
+            return
+
+    def delete_group_reconstructions(self, idx, fibonacci, method):
+        pass
 
     def reconstruct_custom(
         self, idx, fibonacci, method="fdk", name=None, return_data=False, CoR=None
