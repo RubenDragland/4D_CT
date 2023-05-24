@@ -595,6 +595,36 @@ class EquinorDynamicCT(EquinorDataCT):
     def delete_group_reconstructions(self, idx, fibonacci, method):
         pass
 
+    def reconstruct_idx_missing_wedge(
+        self, idx, method="fdk", name=None, return_data=False, CoR=None
+    ):
+        data, angles, geo = self.make_projection_group(idx, 0)
+
+        nproj = len(angles) // 2
+
+        if CoR is not None:
+            geo.COR = CoR
+
+        rec1 = self.reconstruct_group(
+            data[: nproj + 1], angles[: nproj + 1], geo, method=method
+        )[np.newaxis]
+        rec2 = self.reconstruct_group(data[nproj:], angles[nproj:], geo, method=method)[
+            np.newaxis
+        ]
+
+        print(rec1.shape, rec2.shape)
+
+        rec = np.concatenate((rec1, rec2), axis=0)
+
+        if name is None:
+            name = f"Wedge_Rec_{idx}_{method}"
+
+        if return_data:
+            return rec, data
+        else:
+            self.save_custom(rec, idx, 1, method, name)
+            return
+
     def reconstruct_custom(
         self, idx, fibonacci, method="fdk", name=None, return_data=False, CoR=None
     ):
