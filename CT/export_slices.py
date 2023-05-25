@@ -27,28 +27,28 @@ oroot = r"/home/rubensd/Documents/DeepLearning/ReconstructionData"
 # y1, y2 = 300, 556  # 384, 640
 # z1, z2 = 600, 856  # 384, 640
 
-# x1, x2 = 218, 666
-# y1, y2 = 124, 388
-# z1, z2 = 124, 388
+x1, x2 = 218, 666
+y1, y2 = 124, 388
+z1, z2 = 124, 388
 
-x1, x2 = 0, 448
-y1, y2 = 0, 264
-z1, z2 = 0, 264
+# x1, x2 = 0, 448
+# y1, y2 = 0, 264
+# z1, z2 = 0, 264
 
 slice = [[x1, x2], [y1, y2], [z1, z2]]
 
 identifiers = [
-    "gt",
+    # "gt",
     # "Fibonacci1",
     # "Fibonacci2",
     # "Fibonacci3",
     # "aligned",
-    # "Rec_0_1_fdk",
+    "Rec_54_1_fdk",
     # "Rec_0_3_fdk",
     # "Rec_0_5_fdk",
     # "Rec_0_8_fdk",
     # "Rec_0_13_fdk",
-    "Rec_0_1_fdk_enhanced_442256256",
+    # "Rec_54_1_fdk_enhanced_442256256",
     # "Rec_0_1_fdk_enhanced_700428728",
     # "Rec_0_3_fdk_enhanced_700428728",
     # "Rec_0_5_fdk_enhanced_700428728",

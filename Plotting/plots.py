@@ -278,7 +278,7 @@ def plot_slice_grid(
         vmin = np.min([img.min() for img in imgs])
         vmax = np.max([img.max() for img in imgs])
 
-        vmin = -np.max(limits)
+        vmin = 0  # -np.max(limits)
         vmax = np.max(limits)
 
         norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
