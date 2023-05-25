@@ -553,7 +553,7 @@ class EquinorDynamicCT(EquinorDataCT):
             )
             angles = np.squeeze(f[ReconstructionsDataCT.EQNR_ANGLES][str(idx).zfill(5)])
 
-            for elem in tqdm.trange(1, fibonacci + 1):
+            for elem in tqdm.trange(1, fibonacci):
                 new_data = np.squeeze(
                     f[ReconstructionsDataCT.EQNR_PROJECTIONS][str(idx + elem).zfill(5)]
                 )
@@ -598,7 +598,7 @@ class EquinorDynamicCT(EquinorDataCT):
     def reconstruct_idx_missing_wedge(
         self, idx, method="fdk", name=None, return_data=False, CoR=None
     ):
-        data, angles, geo = self.make_projection_group(idx, 0)
+        data, angles, geo = self.make_projection_group(idx, 1)
 
         nproj = len(angles) // 2
 
@@ -612,18 +612,16 @@ class EquinorDynamicCT(EquinorDataCT):
             np.newaxis
         ]
 
-        print(rec1.shape, rec2.shape)
-
-        rec = np.concatenate((rec1, rec2), axis=0)
-
-        if name is None:
-            name = f"Wedge_Rec_{idx}_{method}"
+        recs = [rec1, rec2]
 
         if return_data:
-            return rec, data
-        else:
+            return recs, data
+
+        for i, rec in enumerate(recs):
+            if name is None:
+                name = f"Wedge_Rec_{idx}_{method}_{i}"
             self.save_custom(rec, idx, 1, method, name)
-            return
+        return
 
     def reconstruct_custom(
         self, idx, fibonacci, method="fdk", name=None, return_data=False, CoR=None
