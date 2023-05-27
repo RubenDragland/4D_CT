@@ -196,8 +196,12 @@ def calc_mssim(I, J, c1=0.01**2, c2=0.03**2, k=11):
         full=False,
     ):
         L = val_range  # L is the dynamic range of the pixel values (255 for 8-bit grayscale images),
-
         pad = window_size // 2
+
+        normalise = lambda img: (img - img.min()) / (img.max() - img.min())
+
+        img1 = normalise(img1)
+        img2 = normalise(img2)
 
         try:
             _, channels, height, width = img1.size()

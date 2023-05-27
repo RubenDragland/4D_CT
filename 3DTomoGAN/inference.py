@@ -86,7 +86,17 @@ def enhance(
 
             print(gt.shape, rec_enhanced.shape)
 
-            ssim = utils.torch_ssim(gt, rec_enhanced).detach().cpu().numpy()
+            ssim = 0
+            for i in range(gt.shape[1]):
+                ms, _ = utils.calc_mssim(
+                    gt[:, i, :, :].detach().cpu().numpy(),
+                    rec_enhanced[:, i, :, :].detach().cpu().numpy(),
+                )
+                ssim += ms
+            ssim /= gt.shape[1]
+            # ssim = utils.calc_mssim(
+            #     gt.detach().cpu().numpy(), rec_enhanced.detach().cpu().numpy()
+            # )  # utils.torch_ssim(gt, rec_enhanced).detach().cpu().numpy()
             psnr = utils.torch_psnr(gt, rec_enhanced).detach().cpu().numpy()
 
             data.attrs[
@@ -98,7 +108,17 @@ def enhance(
 
             print(f"SSIM: {ssim}, PSNR: {psnr}")
 
-            ssim = utils.torch_ssim(gt, rec).detach().cpu().numpy()
+            ssim = 0
+            for i in range(gt.shape[1]):
+                ms, _ = utils.calc_mssim(
+                    gt[:, i, :, :].detach().cpu().numpy(),
+                    rec[:, i, :, :].detach().cpu().numpy(),
+                )
+                ssim += ms
+            ssim /= gt.shape[1]
+            # ssim = utils.calc_mssim(
+            #     gt.detach().cpu().numpy(), rec.detach().cpu().numpy()
+            # )  # utils.torch_ssim(gt, rec).detach().cpu().numpy()
             psnr = utils.torch_psnr(gt, rec).detach().cpu().numpy()
 
             print(f"OLD | SSIM: {ssim}, PSNR: {psnr}")

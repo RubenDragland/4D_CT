@@ -443,15 +443,25 @@ for epoch in range(args.maxiter + 1):
             )
 
             validation_loss += generator_loss.cpu().detach().numpy().mean()
-            ssim_loss += utils.calc_ssim(
-                Y.cpu().detach().numpy(), X.cpu().detach().numpy()
-            )
+            mssim = 0
+            mssimc = 0
+            for i in range(X.shape[2]):
+                ms, _ = utils.calc_mssim(
+                    Y[:, :, i].cpu().detach().numpy(), X[:, :, i].cpu().detach().numpy()
+                )
+                mssim += ms
+                ms, _ = utils.calc_mssim(
+                    Y.cpu().detach().numpy(), X_save.cpu().detach().numpy()
+                )
+                mssimc += ms
+            ssim_loss += mssim / int(X.shape[2])  # utils.calc_ssim(        #)
             psnr_loss += utils.calc_psnr(
                 Y.cpu().detach().numpy(), X.cpu().detach().numpy()
             )
-            ssim_compare += utils.calc_ssim(
-                Y.cpu().detach().numpy(), X_save.cpu().detach().numpy()
-            )
+            ssim_compare += mssimc / int(X.shape[2])
+            # utils.calc_ssim(
+            #     Y.cpu().detach().numpy(), X_save.cpu().detach().numpy()
+            # )
 
     print(
         "\n[Info] Epoch: %05d, Validation loss: %.2f \n"

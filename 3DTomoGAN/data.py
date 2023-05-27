@@ -192,6 +192,7 @@ class Dataset3D(Dataset):
         crop_z = dimensions[2] // 2 + crop_z
         # RSD: Hope within bounds
         # RSD:print when training to look at distribution. Too narrow? Go for uniform now?
+        print("crop", crop_x, crop_y, crop_z)
 
         return crop_x, crop_y, crop_z
 
