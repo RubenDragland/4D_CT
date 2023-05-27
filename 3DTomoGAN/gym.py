@@ -219,9 +219,9 @@ for epoch in range(args.maxiter + 1):
 
     training_iter = 0
 
-    assert (
-        len(train_dataloader) >= args.itg + args.itd
-    ), "Not enough data to perform desired epoch."
+    # assert (
+    #     len(train_dataloader) >= args.itg + args.itd
+    # ), "Not enough data to perform desired epoch."
 
     # while training_iter + args.itg + args.itd <= len(train_dataloader):
     while training_iter < len(train_dataloader):
@@ -447,11 +447,13 @@ for epoch in range(args.maxiter + 1):
             mssimc = 0
             for i in range(X.shape[2]):
                 ms, _ = utils.calc_mssim(
-                    Y[:, :, i].cpu().detach().numpy(), X[:, :, i].cpu().detach().numpy()
+                    torch.squeeze(Y[:, :, i]).cpu().detach().numpy(),
+                    torch.squeeze(X[:, :, i]).cpu().detach().numpy(),
                 )
                 mssim += ms
                 ms, _ = utils.calc_mssim(
-                    Y.cpu().detach().numpy(), X_save.cpu().detach().numpy()
+                    torch.squeeze(Y[:, :, i]).cpu().detach().numpy(),
+                    torch.squeeze(X_save[:, :, i]).cpu().detach().numpy(),
                 )
                 mssimc += ms
             ssim_loss += mssim / int(X.shape[2])  # utils.calc_ssim(        #)

@@ -167,7 +167,7 @@ class Dataset3D(Dataset):
 
         def find_std(dimensions, size):
             low, high = find_bounds(dimensions, size)
-            return (high - low) * 0.05
+            return (high - low) * 0.25  # RSD: Adjusted from 0.05
 
         def normal_crop(rng, dimensions, size):
             return (
