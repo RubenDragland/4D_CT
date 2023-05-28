@@ -188,8 +188,9 @@ logging.info("Loaded perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
 # Define optimizers
 
-gen_optim = torch.optim.Adam(generator.parameters(), lr=args.lrateg / 10)
-disc_optim = torch.optim.Adam(discriminator.parameters(), lr=args.lrated / 10)
+gen_optim = torch.optim.Adam(generator.parameters(), lr=args.lrateg)
+disc_optim = torch.optim.Adam(discriminator.parameters(), lr=args.lrated)
+# RSD: Was divided by 10. Unsure why. Min learning rate used in scheduler.
 
 
 gen_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
