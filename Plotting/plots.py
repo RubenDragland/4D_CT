@@ -233,9 +233,11 @@ def plot_slice_grid(
     folder="Golden Angle",
     bar=False,
     cm=None,
+    two_sided=False,
     fs=None,
     ns=None,
     scalebar_kwargs=None,
+    mask=None,
 ):
     choose_formatter(False)
     if cm is None:
@@ -271,6 +273,9 @@ def plot_slice_grid(
             axes[i] = add_scalebar(axes[i], scalebar_kwargs=scalebar_kwargs)
         elif bar:
             axes[i] = add_scalebar(axes[i])
+
+        if mask is not None:
+            axes[i].scatter(mask[1], mask[0], marker=",", c="r", s=1, alpha=0.50)
     if suptitle is not None:
         plt.suptitle(suptitle)
     if cm is not None:
@@ -278,8 +283,11 @@ def plot_slice_grid(
         vmin = np.min([img.min() for img in imgs])
         vmax = np.max([img.max() for img in imgs])
 
-        vmin = 0  # -np.max(limits)
         vmax = np.max(limits)
+        if two_sided:
+            vmin = -vmax
+        else:
+            vmin = 0
 
         norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
 
@@ -319,6 +327,8 @@ def plot_line_profile(
     idxs=None,
     savefile=None,
     savefig=False,
+    xlabel="Pixel",
+    ylabel="Intensity [a.u.]",
     folder="Golden Angle",
     title="Line Profile of RoI",
 ):
@@ -357,12 +367,76 @@ def plot_line_profile(
         shadow=False,
     )
 
-    ax2.set_xlabel("Pixel")
-    ax2.set_ylabel("Normalised Intensity [a.u.]")
+    ax2.set_xlabel(xlabel)
+    ax2.set_ylabel(ylabel)
 
     if savefig:
         plt.savefig(f"../Results/{folder}/{savefile}.pdf", format="pdf")
 
+    plt.show()
+
+
+def plot_intensity_dist(
+    intensities,
+    labels,
+    bins=150,
+    suptitle=["Intensity Distribution", "Intensity Distribution"],
+    alpha=0.5,
+    log=True,
+    savefig=False,
+    density=True,
+    folder="Hourglass4D",
+    savefile="",
+    ns=None,
+    fs=None,
+):
+    choose_formatter(False)
+    if cm is None:
+        cmap = "gray"
+    else:
+        cmap = cm
+
+    def grids(n):
+        if n <= 3:
+            return 1, n
+        n_sqrt = np.sqrt(n)
+        if n_sqrt % 1 == 0:
+            return int(n_sqrt), int(n_sqrt)
+        else:
+            assert n % 3 == 0
+            return n // 3, 3
+
+    n1, n2 = ns if ns is not None else grids(len(intensities))
+
+    f1, f2 = fs if fs is not None else (n1, n2)
+
+    fig = plt.figure(figsize=(f2 * DEFAULT_FIGSIZE[1], f1 * DEFAULT_FIGSIZE[1]))
+    gs = GridSpec(n1, n2, figure=fig, wspace=0, hspace=0.0)
+    axes = np.array(
+        [[fig.add_subplot(gs[j, i]) for i in range(n2)] for j in range(n1)]
+    ).reshape(-1)
+    for i in range(len(intensities)):
+        for j in range(len(intensities[i])):
+            axes[i].hist(
+                intensities[i][j].flatten(),
+                bins=bins,
+                density=density,
+                alpha=alpha,
+                label=labels[i][j],
+            )
+        # axes[i].legend()
+        axes[i].set_title(suptitle[i])
+        if log:
+            axes[i].set_yscale("log")
+    axes[-1].legend(
+        bbox_to_anchor=(0.5, -0.25),
+        loc="upper center",
+        ncol=2,
+        fancybox=True,
+        shadow=False,
+    )
+    if savefig:
+        plt.savefig(f"../Results/{folder}/{savefile}.pdf", format="pdf")
     plt.show()
 
 
@@ -378,6 +452,7 @@ def plot_fsc(
     folder="Hourglass4D",
     savefile="FSC",
     xlim=None,
+    ncols=5,
 ):
     # fig, (ax, axe) = plt.subplots(1, 2)
     fig = plt.figure(figsize=(DEFAULT_FIGSIZE[0], DEFAULT_FIGSIZE[1]))
@@ -447,7 +522,7 @@ def plot_fsc(
         labels,
         bbox_to_anchor=(0.5, 0.5),
         loc="center",
-        ncol=5,
+        ncol=ncols,
         fancybox=True,
         shadow=False,
     )
@@ -458,5 +533,54 @@ def plot_fsc(
 
     if save:
         plt.savefig(rf"../Results/{folder}/{savefile}.pdf", format="pdf")
+
+    plt.show()
+
+
+def plot_attr_development(
+    x,
+    attrs,
+    labels,
+    xlabel="Projections",
+    ylabel="SSIM",
+    title="GAN Global Performance",
+    folder="Hourglass4D",
+    save=False,
+    savefile="GAN_global_performance",
+    ylim=(0, 1),
+    columns=1,
+):
+    def proj_to_factor(x):
+        return 256 * np.pi / 2 / x
+
+    def factor_to_proj(x):
+        return 256 * np.pi / 2 / x
+
+    fig, ax = plt.subplots(
+        1,
+        1,
+    )
+
+    for attr, label in zip(attrs, labels):
+        ax.plot(x, attr, "D:", label=label)
+    # ax.plot(x, attrs, "D:", label=labels)
+
+    ax2 = ax.secondary_xaxis(
+        "top", functions=(factor_to_proj, proj_to_factor)
+    )  # ax1.twiny()
+
+    ax2.set_xlabel("Nyquist Undersampling Factor")
+    ax2.set_xticks([2**i for i in range(1, 6)])
+    ax2.set_xticklabels([2**i for i in range(1, 6)])
+
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_ylim(ylim)
+    # ax.set_ylim([-20,20])
+    ax.legend(ncol=columns)
+    ax.set_title(title)
+
+    if save:
+        plt.savefig(f"../Results/{folder}/{savefile}.pdf", format="pdf")
 
     plt.show()

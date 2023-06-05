@@ -573,13 +573,24 @@ class EquinorDynamicCT(EquinorDataCT):
         return data, angles, geo
 
     # RSD: All the params were not necessary...
-    def save_custom(self, rec, idx, fibonacci, method, name):
+    def save_custom(self, rec, idx, fibonacci, method, name, force=False):
         with h5py.File(self.full_path, "a") as o:
-            o.create_dataset(
-                name,
-                data=rec,
-            )
-        return
+            try:
+                o.create_dataset(
+                    name,
+                    data=rec,
+                )
+            except:
+                if force:
+                    del o[name]
+                    o.create_dataset(
+                        name,
+                        data=rec,
+                    )
+                    return
+                else:
+                    print("Failed to save reconstruction. Already exists.")
+                    return
 
     def delete_reconstruction(self, idx, fibonacci, method, name=None):
         if name is None:
@@ -612,19 +623,29 @@ class EquinorDynamicCT(EquinorDataCT):
             np.newaxis
         ]
 
-        recs = [rec1, rec2]
+        recs = [np.squeeze(rec1), np.squeeze(rec2)]
 
         if return_data:
             return recs, data
 
+        if name is not None:
+            names = [f"{name}_0", f"{name}_1"]
+        else:
+            names = [f"Wedge_Rec_{idx}_{method}_{i}" for i in range(2)]
+
         for i, rec in enumerate(recs):
-            if name is None:
-                name = f"Wedge_Rec_{idx}_{method}_{i}"
-            self.save_custom(rec, idx, 1, method, name)
+            self.save_custom(rec, idx, 1, method, name=names[i])
         return
 
     def reconstruct_custom(
-        self, idx, fibonacci, method="fdk", name=None, return_data=False, CoR=None
+        self,
+        idx,
+        fibonacci,
+        method="fdk",
+        name=None,
+        return_data=False,
+        CoR=None,
+        force=False,
     ):
         data, angles, geo = self.make_projection_group(idx, fibonacci)
 
@@ -639,7 +660,7 @@ class EquinorDynamicCT(EquinorDataCT):
         if return_data:
             return rec, data
         else:
-            self.save_custom(rec, idx, fibonacci, method, name)
+            self.save_custom(rec, idx, fibonacci, method, name, force=force)
             return
 
     def reconstruct_custom_4D(self, idx, fibonacci, method="fdk", name=None, CoR=None):
