@@ -5,19 +5,19 @@ import json
 import os
 
 hparams = {
-    "name": "sirt_training_continued",
-    "lmse": 50,
-    "ladv": 100,
-    "lperc": 1,
+    "name": "OPTIMC",
+    "lmse": 1,
+    "ladv": 10,
+    "lperc": 0,
     "psz": 128,
     "mbsz": 1,
-    "itg": 200,
-    "itd": 1,
+    "itg": 10,
+    "itd": 10,
     "lrateg": 1e-5,
     "lrated": 2e-5,
     "train_split": 0.88,
     "transforms": "basic",
-    "transfer_model": "SIRT_basic2_it00100_gen",
+    "transfer_model": "simV1_it00500_gen",
 }
 
 if __name__ == "__main__":

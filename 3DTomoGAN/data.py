@@ -32,6 +32,7 @@ def tio_identity(tensor):
 includes = ("data", "target")
 inverse_transform = tio.Lambda(inverse_transform, include=includes)
 random_inverse_transform = tio.Lambda(random_inverse_transform, include=includes)
+identity = tio.Lambda(tio_identity, include=includes)
 
 # 31% change of not flipping
 # Prob could be changed as a param.
@@ -69,6 +70,13 @@ basic_transforms = tio.Compose(
         ),
     ],
 )
+
+no_augmentation = tio.Compose(
+    [
+        tio.RescaleIntensity((0, 1), include=includes),
+        random_inverse_transform,  # RSD: Not when transfer learning
+    ]
+)
 # RSD: Consider how rotation should be conducted
 
 advanced_transforms = tio.Compose(
@@ -93,6 +101,7 @@ class Dataset3D(Dataset):
     transforms_dict = {
         "basic": basic_transforms,
         "advanced": advanced_transforms,
+        "none": no_augmentation,
     }
 
     def __init__(self, filename, img_dir_root, hparams):

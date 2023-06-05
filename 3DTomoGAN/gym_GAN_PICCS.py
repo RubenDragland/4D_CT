@@ -50,6 +50,7 @@ parser.add_argument(
 parser.add_argument(
     "-saveiter", type=int, default=250, help="save model every saveiter iterations"
 )
+parser.add_argument("-idx", type=int, default=0, help="index of the training sample")
 
 args, unparsed = parser.parse_known_args()
 
@@ -132,7 +133,7 @@ logging.info("After loading: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
 # load models
 
-generator = Generator3DTomoGAN().to(device)
+generator = Generator3DTomoGAN(normalise=True).to(device)
 discriminator = Discriminator3DTomoGAN().to(device)
 
 
@@ -197,11 +198,6 @@ for epoch in range(args.maxiter + 1):
 
     training_iter = 0
 
-    # assert (
-    #     len(train_dataloader) >= args.itg + args.itd
-    # ), "Not enough data to perform desired epoch."
-
-    # while training_iter + args.itg + args.itd <= len(train_dataloader):
     while training_iter < len(train_dataloader):
         time_git_st = time.time()
 
@@ -214,10 +210,12 @@ for epoch in range(args.maxiter + 1):
         for _ge in range(args.itg):
             training_iter += 1
 
-            X, Y = next(iter(train_dataloader))
-            X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
-                device
-            )
+            # X, Y = next(iter(train_dataloader))
+            X, Y = train_set.__getitem__(args.idx)  # RSD: Difference between iterators?
+
+            X, Y = torch.unsqueeze(X, dim=0).unsqueeze(0).to(device), torch.unsqueeze(
+                Y, dim=0
+            ).unsqueeze(0).to(device)
 
             # Train Generator
             gen_optim.zero_grad()
@@ -254,7 +252,7 @@ for epoch in range(args.maxiter + 1):
                 generator_loss.backward()
                 gen_optim.step()
 
-            if loss_adv < 1:  # RSD: Needs to be tweaked.
+            if loss_adv < 0.69:  # RSD: Needs to be tweaked.
                 break
 
         itr_prints_gen = (
@@ -290,10 +288,11 @@ for epoch in range(args.maxiter + 1):
         # RSD: Remember to fully implement how this is supposed to work.
         for _de in range(args.itd):
             training_iter += 1
-            X, Y = next(iter(train_dataloader))
-            X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
-                device
-            )
+            # X, Y = next(iter(train_dataloader))
+            X, Y = train_set.__getitem__(args.idx)
+            X, Y = torch.unsqueeze(X, dim=0).unsqueeze(0).to(device), torch.unsqueeze(
+                Y, dim=0
+            ).unsqueeze(0).to(device)
 
             disc_optim.zero_grad()
             X = generator(X)
@@ -308,12 +307,12 @@ for epoch in range(args.maxiter + 1):
 
             discriminator_loss.backward()
 
-            logging.info(
-                f"Discriminator grad:{ [discriminator.layers[i].weight.grad.max().cpu().detach().numpy() for i in range(0, 7, 2)]}"
-            )
+            # logging.info(
+            #     f"Discriminator grad:{ [discriminator.layers[i].weight.grad.max().cpu().detach().numpy() for i in range(0, 7, 2)]}"
+            # )
             disc_optim.step()
 
-            if discriminator_loss < 2:
+            if discriminator_loss < 1.35:
                 break
 
         disc_optim.zero_grad()
@@ -344,7 +343,7 @@ for epoch in range(args.maxiter + 1):
         for v_ge, val_data in enumerate(val_dataloader, 0):
             X, Y = val_data
             X_save = X.clone()
-            X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
+            X, Y = torch.unsqueeze(X, dim=0).to(device), torch.unsqueeze(Y, dim=0).to(
                 device
             )
 

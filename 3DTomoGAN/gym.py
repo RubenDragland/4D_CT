@@ -234,8 +234,8 @@ for epoch in range(args.maxiter + 1):
         generator.train()
         generator.requires_grad_(True)
 
-        # for _ge in range(args.itg):
-        while training_iter < len(train_dataloader) - 1:
+        for _ge in range(args.itg):
+            # while training_iter < len(train_dataloader) - 1:
             training_iter += 1
 
             X, Y = next(iter(train_dataloader))
@@ -294,7 +294,7 @@ for epoch in range(args.maxiter + 1):
                 generator_loss.backward()
                 gen_optim.step()
 
-            if generator_loss < args.lmse * args.ladv / args.itg:
+            if loss_adv < 0.69:
                 break
 
         # del X_vgg, Y_vgg
@@ -330,8 +330,8 @@ for epoch in range(args.maxiter + 1):
         )
 
         # RSD: Remember to fully implement how this is supposed to work.
-        # for _de in range(args.itd):
-        while training_iter < len(train_dataloader):
+        for _de in range(args.itd):
+            # while training_iter < len(train_dataloader):
             training_iter += 1
             X, Y = next(iter(train_dataloader))
             X, Y = torch.unsqueeze(X, dim=1).to(device), torch.unsqueeze(Y, dim=1).to(
@@ -351,12 +351,12 @@ for epoch in range(args.maxiter + 1):
 
             discriminator_loss.backward()
 
-            logging.info(
-                f"Discriminator grad:{ [discriminator.layers[i].weight.grad.max().cpu().detach().numpy() for i in range(0, 7, 2)]}"
-            )
+            # logging.info(
+            #     f"Discriminator grad:{ [discriminator.layers[i].weight.grad.max().cpu().detach().numpy() for i in range(0, 7, 2)]}"
+            # )
             disc_optim.step()
 
-            if discriminator_loss < 2 / args.itd:
+            if discriminator_loss < 1.35:
                 break
 
         disc_optim.zero_grad()

@@ -177,7 +177,7 @@ class Discriminator3DTomoGAN(nn.Module):
 
 
 class Generator3DTomoGAN(nn.Module):
-    def __init__(self, hparams=None):
+    def __init__(self, hparams=None, normalise=True):
         super().__init__()
 
         if hparams is None:  # RSD: Not done yet.
@@ -272,6 +272,13 @@ class Generator3DTomoGAN(nn.Module):
 
         self.final_sigmoid = nn.Sigmoid()
 
+        if normalise:
+            self.final_layer = lambda x: (x - torch.min(x)) / (
+                torch.max(x) - torch.min(x)
+            )
+        else:
+            self.final_layer = lambda x: x
+
     def unet_conv_block(self, block, in_ch, out_ch):
         block.append(
             nn.Conv3d(
@@ -311,9 +318,10 @@ class Generator3DTomoGAN(nn.Module):
         x = torch.cat((x, skip_connections.pop()), dim=1)
         x = self.net_up3(x)
 
-        x = (x - torch.min(x)) / (
-            torch.max(x) - torch.min(x)
-        )  # RSD: Normalise? Should not Sigmoid be better? But vanishing gradients...
+        # x = (x - torch.min(x)) / (
+        #     torch.max(x) - torch.min(x)
+        # )  # RSD: Normalise? Should not Sigmoid be better? But vanishing gradients...
+        x = self.final_layer(x)
 
         return x
 

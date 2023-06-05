@@ -27,6 +27,35 @@ def discriminator_loss(
     return total_loss
 
 
+def gradient_penalty_discriminator_loss(real_output, fake_output, X, Y, discriminator):
+    """
+    Believe this is the correct implementation of wasserstein distance. Test for discussion.
+    """
+    epsilon = np.random.uniform(0, 1, size=(X.shape[0], 1, 1, 1, 1))
+    I = epsilon * X + (1 - epsilon) * Y
+    lambda_d = 10
+    I.to(real_output.device)
+    I.requires_grad_(True)
+    wasserstein = np.mean(fake_output - real_output)
+    output = discriminator(I)
+    gradients = torch.autograd.grad(
+        outputs=output,
+        inputs=I,
+        grad_outputs=torch.ones(I.size()).to(real_output.device),
+        create_graph=True,
+        retain_graph=True,
+        only_inputs=True,
+    )[0]
+
+    gradient_penalty = lambda_d * torch.mean((gradients.norm(2, dim=1) - 1) ** 2)
+
+    return wasserstein + gradient_penalty
+
+
+def wasserstein_distance_adv(Dx):
+    return -torch.mean(Dx)
+
+
 # RSD: Believe this is binary cross entropy for generator
 # RSD: In this case, one would like to maximize fake_output probability
 def adversarial_loss(fake_output, classification_loss=nn.BCEWithLogitsLoss()):
@@ -120,14 +149,23 @@ def torch_ssim(I, J, c1=0.01**2, c2=0.03**2):
     return ssim
 
 
-def torch_psnr(I, J):
+def torch_psnr(I, J, norm=False):
+    normalise = lambda img: (img - img.min()) / (img.max() - img.min())
+    if norm:
+        I = normalise(I)
+        J = normalise(J)
     mse = torch.mean((I - J) ** 2)
     max_val = torch.max(I)
     psnr = 10 * torch.log10(max_val**2 / mse)
     return psnr
 
 
-def calc_ssim(I, J, c1=0.01**2, c2=0.03**2):
+def calc_ssim(I, J, c1=0.01**2, c2=0.03**2, norm=False):
+    normalise = lambda img: (img - img.min()) / (img.max() - img.min())
+    if norm:
+        I = normalise(I)
+        J = normalise(J)
+
     mean_I = np.mean(I)
     mean_J = np.mean(J)
 
@@ -202,6 +240,9 @@ def calc_mssim(I, J, c1=0.01**2, c2=0.03**2, k=11):
 
         img1 = normalise(img1)
         img2 = normalise(img2)
+        L1 = torch.max(img1)
+        L2 = torch.min(img1)
+        L = L1 - L2
 
         try:
             _, channels, height, width = img1.size()
@@ -231,8 +272,8 @@ def calc_mssim(I, J, c1=0.01**2, c2=0.03**2, k=11):
         sigma12 = F.conv2d(img1 * img2, window, padding=pad, groups=channels) - mu12
 
         # Some constants for stability
-        C1 = (0.01) ** 2  # NOTE: Removed L from here (ref PT implementation)
-        C2 = (0.03) ** 2
+        C1 = 0.01**2 * L**2  # NOTE: Removed L from here (ref PT implementation)
+        C2 = 0.03**2 * L**2
 
         contrast_metric = (2.0 * sigma12 + C2) / (sigma1_sq + sigma2_sq + C2)
         contrast_metric = torch.mean(contrast_metric)
@@ -322,3 +363,23 @@ def evaluate_recs(x, y, normalise=False):
     ssim = calc_ssim(x, y)
     psnr = calc_psnr(x, y)
     return ssim, psnr
+
+
+def calc_sobel(crossection):
+    import scipy.ndimage as nd
+
+    crossection = np.squeeze(crossection)
+    grads = []
+    for i in range(len(crossection.shape)):
+        grads.append(nd.sobel(crossection, axis=i))
+    # grad_x = nd.sobel(crossection, axis=0)
+    # grad_y = nd.sobel(crossection, axis=1)
+    # grad_z = nd.sobel(crossection, axis=2)
+
+    grads = np.array(grads)
+    return np.sqrt(np.sum(grads**2, axis=0))
+
+
+def TV_score(x):
+    grad = calc_sobel(x)
+    return np.sum(grad)
