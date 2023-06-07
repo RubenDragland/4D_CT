@@ -453,6 +453,7 @@ def plot_fsc(
     savefile="FSC",
     xlim=None,
     ncols=5,
+    width=256,
 ):
     # fig, (ax, axe) = plt.subplots(1, 2)
     fig = plt.figure(figsize=(DEFAULT_FIGSIZE[0], DEFAULT_FIGSIZE[1]))
@@ -460,16 +461,16 @@ def plot_fsc(
     ax = fig.add_subplot(gs[1:, 0])
     axe = fig.add_subplot(gs[1:, 1])
 
-    ax.set_xlabel("Spatial Frequency")
+    ax.set_xlabel("Spatial Frequency [\% Nyquist]")
     ax.set_ylabel(ylabel1)
     # ax.set_xlim(0, 100)
-    axe.set_xlabel("Spatial Frequency")
+    axe.set_xlabel("Spatial Frequency [\% Nyquist]]")
     axe.set_ylabel(ylabel2)
 
     for i, (fscr, uniques) in enumerate(outputs):
         # ax.plot(uniques, fscr.real, label="13 Projections")
         ax.plot(
-            uniques[filter:-filter],
+            uniques[filter:-filter] / (width / 2),
             [
                 np.mean(fscr.real[i - filter : i + filter])
                 for i in range(filter, len(fscr.real) - filter)
@@ -481,7 +482,7 @@ def plot_fsc(
 
     for i, (fscr, uniques) in enumerate(outputs_enhanced):
         axe.plot(
-            uniques[filter:-filter],
+            uniques[filter:-filter] / (width / 2),
             [
                 np.mean(fscr.real[i - filter : i + filter])
                 for i in range(filter, len(fscr.real) - filter)
