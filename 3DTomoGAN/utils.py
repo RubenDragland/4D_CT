@@ -31,17 +31,21 @@ def gradient_penalty_discriminator_loss(real_output, fake_output, X, Y, discrimi
     """
     Believe this is the correct implementation of wasserstein distance. Test for discussion.
     """
-    epsilon = np.random.uniform(0, 1, size=(X.shape[0], 1, 1, 1, 1))
-    I = epsilon * X + (1 - epsilon) * Y
-    lambda_d = 10
+    epsilon = (
+        torch.from_numpy(np.random.uniform(0, 1, size=(X.shape[0], 1, 1, 1, 1)))
+        .float()
+        .to(X.device)
+    )
+    I = epsilon * X + (1 - epsilon) * Y  # .float()
+    lambda_d = 0
     I.to(real_output.device)
     I.requires_grad_(True)
-    wasserstein = np.mean(fake_output - real_output)
+    wasserstein = torch.mean(fake_output - real_output)
     output = discriminator(I)
     gradients = torch.autograd.grad(
         outputs=output,
         inputs=I,
-        grad_outputs=torch.ones(I.size()).to(real_output.device),
+        # grad_outputs=torch.ones(I.size()).to(real_output.device),
         create_graph=True,
         retain_graph=True,
         only_inputs=True,
@@ -182,7 +186,11 @@ def calc_ssim(I, J, c1=0.01**2, c2=0.03**2, norm=False):
     return ssim
 
 
-def calc_psnr(I, J):
+def calc_psnr(I, J, norm=False):
+    normalise = lambda img: (img - img.min()) / (img.max() - img.min())
+    if norm:
+        I = normalise(I)
+        J = normalise(J)
     mse = np.mean((I - J) ** 2)
     max_val = np.max(I)
     psnr = 10 * np.log10(max_val**2 / mse)
@@ -242,7 +250,7 @@ def calc_mssim(I, J, c1=0.01**2, c2=0.03**2, k=11):
         img2 = normalise(img2)
         L1 = torch.max(img1)
         L2 = torch.min(img1)
-        L = L1 - L2
+        L = 1  # L1 - L2
 
         try:
             _, channels, height, width = img1.size()
@@ -270,6 +278,9 @@ def calc_mssim(I, J, c1=0.01**2, c2=0.03**2, k=11):
         sigma1_sq = F.conv2d(img1 * img1, window, padding=pad, groups=channels) - mu1_sq
         sigma2_sq = F.conv2d(img2 * img2, window, padding=pad, groups=channels) - mu2_sq
         sigma12 = F.conv2d(img1 * img2, window, padding=pad, groups=channels) - mu12
+        # sigma12 = F.conv2d(
+        # (img1 - mu1) * (img2 - mu2), window, padding=pad, groups=channels
+        # )
 
         # Some constants for stability
         C1 = 0.01**2 * L**2  # NOTE: Removed L from here (ref PT implementation)
@@ -320,10 +331,11 @@ def FSC(gt, elem, sizes=(256, 256, 256)):
 
     radius = np.sqrt(
         (X - sizes[0] // 2) ** 2 + (Y - sizes[1] // 2) ** 2 + (Z - sizes[2] // 2) ** 2
-    ).flatten()
+    ).flatten()  # RSD: Removed sqrt to keep integers
 
     uniques = np.unique(radius)
     print(uniques.shape)
+    # uniques = np.round(uniques)  # RSD: Make int of frequencies
 
     gt_dict = {}
     elem_dict = {}
@@ -331,17 +343,18 @@ def FSC(gt, elem, sizes=(256, 256, 256)):
         gt_dict[u] = []
         elem_dict[u] = []
 
+    # radius = np.round(radius)
     for i, u in enumerate(tqdm.tqdm(radius)):
         gt_dict[u].append(gt_k[i])
         elem_dict[u].append(elem_k[i])
 
     uniques = np.sort(uniques)
 
+    print(gt_dict.keys().__len__())
+
     FSCR = np.zeros_like(uniques, dtype=np.complex64)
 
     for i, u in enumerate(tqdm.tqdm(uniques)):
-        # gt_kr = gt_k[np.where(radius == u)]
-        # elem_kr = elem_k[np.where(radius == u)]
         gt_kr = np.array(gt_dict[u])
         elem_kr = np.array(elem_dict[u])
 
@@ -351,7 +364,7 @@ def FSC(gt, elem, sizes=(256, 256, 256)):
 
         FSCR[i] = upper / lower
 
-    return FSCR, uniques
+    return FSCR, uniques  # check return.
 
 
 def evaluate_recs(x, y, normalise=False):

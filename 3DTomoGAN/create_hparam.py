@@ -5,12 +5,12 @@ import json
 import os
 
 hparams = {
-    "name": "OPTIMC",
+    "name": "WGAN",
     "lmse": 1,
     "ladv": 10,
     "lperc": 0,
-    "psz": 128,
-    "mbsz": 1,
+    "psz": 80,
+    "mbsz": 4,
     "itg": 10,
     "itd": 10,
     "lrateg": 1e-5,

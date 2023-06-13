@@ -250,22 +250,24 @@ for epoch in range(args.maxiter + 1):
             loss_mse = utils.mean_squared_error(X, Y)
 
             loss_adv = utils.adversarial_loss(discriminator(X))
+            # loss_adv = utils.wasserstein_distance_adv(discriminator(X))
+            # )  # RSD: Testing WGAN.
             # logging.info("Loss adv: %f" % loss_adv)
 
             # mem = torch.cuda.mem_get_info()
             # logging.debug("Before perc: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024))
 
-            # perc_loss = torch.zeros(1).to(device)  # 0
-            perc_loss = 0
+            perc_loss = torch.zeros(1).to(device)  # 0
+            # perc_loss = 0
 
-            perc_loss += utils.perc_slice_loop(
-                feature_extractor,
-                indexer=utils.perc_indexer_x,
-                preprocess=preprocess,
-                X=X,
-                Y=Y,
-                slices=X.shape[2],
-            )
+            # perc_loss += utils.perc_slice_loop(
+            #     feature_extractor,
+            #     indexer=utils.perc_indexer_x,
+            #     preprocess=preprocess,
+            #     X=X,
+            #     Y=Y,
+            #     slices=X.shape[2],
+            # )
             # perc_loss += utils.perc_slice_loop(
             #     feature_extractor,
             #     indexer=utils.perc_indexer_y,
@@ -294,7 +296,7 @@ for epoch in range(args.maxiter + 1):
                 generator_loss.backward()
                 gen_optim.step()
 
-            if loss_adv < 0.69:
+            if torch.abs(loss_adv) < 0.69:
                 break
 
         # del X_vgg, Y_vgg
@@ -325,7 +327,7 @@ for epoch in range(args.maxiter + 1):
         generator.requires_grad_(False)
 
         mem = torch.cuda.mem_get_info()
-        logging.debug(
+        logging.info(
             "Before discriminator: " + str((mem[1] - mem[0]) / 1024 / 1024 / 1024)
         )
 
@@ -349,6 +351,12 @@ for epoch in range(args.maxiter + 1):
             )
             logging.info("Discriminator loss: %f" % discriminator_loss)
 
+            # RSD: Testing WGAN.
+            # discriminator_loss = utils.gradient_penalty_discriminator_loss(
+            #     discriminator_real, discriminator_fake, X, Y, discriminator
+            # )
+            # logging.info("Discriminator loss: %f" % discriminator_loss)
+
             discriminator_loss.backward()
 
             # logging.info(
@@ -356,7 +364,7 @@ for epoch in range(args.maxiter + 1):
             # )
             disc_optim.step()
 
-            if discriminator_loss < 1.35:
+            if torch.abs(discriminator_loss) < 1.35:
                 break
 
         disc_optim.zero_grad()
@@ -402,16 +410,16 @@ for epoch in range(args.maxiter + 1):
             # RSD: Same changes as above necessary.
 
             perc_loss = torch.zeros(1).to(device)
-            perc_loss = 0
+            # perc_loss = 0
 
-            perc_loss += utils.perc_slice_loop(
-                feature_extractor,
-                indexer=utils.perc_indexer_x,
-                preprocess=preprocess,
-                X=X,
-                Y=Y,
-                slices=X.shape[2],
-            )
+            # perc_loss += utils.perc_slice_loop(
+            #     feature_extractor,
+            #     indexer=utils.perc_indexer_x,
+            #     preprocess=preprocess,
+            #     X=X,
+            #     Y=Y,
+            #     slices=X.shape[2],
+            # )
             # perc_loss += utils.perc_slice_loop(
             #     feature_extractor,
             #     indexer=utils.perc_indexer_y,
@@ -446,37 +454,42 @@ for epoch in range(args.maxiter + 1):
             validation_loss += generator_loss.cpu().detach().numpy().mean()
             mssim = 0
             mssimc = 0
-            for i in range(X.shape[2]):
-                ms, _ = utils.calc_mssim(
-                    torch.squeeze(Y[:, :, i]).cpu().detach().numpy(),
-                    torch.squeeze(X[:, :, i]).cpu().detach().numpy(),
+            for n in range(X.shape[0]):
+                for i in range(X.shape[2]):
+                    ms, _ = utils.calc_mssim(
+                        torch.squeeze(Y[n, :, i]).cpu().detach().numpy(),
+                        torch.squeeze(X[n, :, i]).cpu().detach().numpy(),
+                    )
+                    mssim += ms
+                    ms, _ = utils.calc_mssim(
+                        torch.squeeze(Y[n, :, i]).cpu().detach().numpy(),
+                        torch.squeeze(X_save[n, :, i]).cpu().detach().numpy(),
+                    )
+                    mssimc += ms
+                ssim_loss += mssim / int(X.shape[2])  # utils.calc_ssim(        #)
+                psnr_loss += utils.calc_psnr(
+                    Y.cpu().detach().numpy(), X.cpu().detach().numpy()
                 )
-                mssim += ms
-                ms, _ = utils.calc_mssim(
-                    torch.squeeze(Y[:, :, i]).cpu().detach().numpy(),
-                    torch.squeeze(X_save[:, :, i]).cpu().detach().numpy(),
-                )
-                mssimc += ms
-            ssim_loss += mssim / int(X.shape[2])  # utils.calc_ssim(        #)
-            psnr_loss += utils.calc_psnr(
-                Y.cpu().detach().numpy(), X.cpu().detach().numpy()
-            )
-            ssim_compare += mssimc / int(X.shape[2])
-            # utils.calc_ssim(
-            #     Y.cpu().detach().numpy(), X_save.cpu().detach().numpy()
-            # )
+                ssim_compare += mssimc / int(X.shape[2])
+                # utils.calc_ssim(
+                #     Y.cpu().detach().numpy(), X_save.cpu().detach().numpy()
+                # )
 
     print(
         "\n[Info] Epoch: %05d, Validation loss: %.2f \n"
-        % (epoch, validation_loss / len(val_dataloader))
+        % (epoch, validation_loss / X.shape[0] / len(val_dataloader))
     )  # RSD ++ Accuracy or PSNR or SSIM
     print(
         "[Info] Epoch: %05d, Validation ssim: %.2f (%.2f)\n"
-        % (epoch, ssim_loss / len(val_dataloader), ssim_compare / len(val_dataloader))
+        % (
+            epoch,
+            ssim_loss / X.shape[0] / len(val_dataloader),
+            ssim_compare / X.shape[0] / len(val_dataloader),
+        )
     )
 
     logging.info(
-        f"Validation ssim: {ssim_loss/len(val_dataloader)} ({ssim_compare / len(val_dataloader)})"
+        f"Validation ssim: {ssim_loss/  X.shape[0]/len(val_dataloader)} ({ssim_compare /  X.shape[0]/len(val_dataloader)})"
     )
 
     x_axis.append(len(train_loss))
