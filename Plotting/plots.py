@@ -38,9 +38,16 @@ mpl.rcParams["axes.prop_cycle"] = cycler(
         "#1F449C",
         "#A8B6CC",
         "#EEBAB4",
+        "#E57A77",
+        "#7CA1CC",
+        "#F05039",
+        "#1F449C",
+        "#A8B6CC",
+        "#EEBAB4",
+        "#3D65A5",
     ]  # ["#F05039", "#E57A77", "#EEBAB4", "#1F449C", "#3D65A5", "#7CA1CC", "#A8B6CC"]
 ) + cycler(
-    linestyle=["-", "--", "-.", ":", "-", "--", "-."]
+    linestyle=["-", "--", "-.", ":", "-", "--", "-."] * 2
 )  # From: https://www.datylon.com/blog/data-visualization-for-colorblind-readers  and https://ranocha.de/blog/colors/ , respectively
 # cycler(color=plt.style.library["tab10"]["axes.prop_cycle"].by_key()["color"])
 # ggplot seaborn-colorblind
@@ -345,7 +352,7 @@ def plot_line_profile(
 
     ax1.imshow(crossections, cmap="gray")
     ax1.plot([y1, y2], [x1, x2], c="red", linewidth=2, alpha=0.75, label="RoI")
-    ax1.set_title(title)
+    # ax1.set_title(title)
     ax1.set_axis_off()
 
     for i, (img, lab) in enumerate(zip(imgs, labels)):
@@ -371,7 +378,11 @@ def plot_line_profile(
     ax2.set_ylabel(ylabel)
 
     if savefig:
-        plt.savefig(f"../Results/{folder}/{savefile}.pdf", format="pdf")
+        plt.savefig(
+            f"../Results/{folder}/{savefile}.pdf",
+            format="pdf",
+        )  # bbox_inches="tight"
+        # )
 
     plt.show()
 
@@ -461,39 +472,102 @@ def plot_fsc(
     ax = fig.add_subplot(gs[1:, 0])
     axe = fig.add_subplot(gs[1:, 1])
 
-    ax.set_xlabel("Spatial Frequency [\% Nyquist]")
+    ax.set_xlabel("Nyquist Frequency")
     ax.set_ylabel(ylabel1)
     # ax.set_xlim(0, 100)
-    axe.set_xlabel("Spatial Frequency [\% Nyquist]]")
+    axe.set_xlabel("Nyquist Frequency")
     axe.set_ylabel(ylabel2)
 
-    for i, (fscr, uniques) in enumerate(outputs):
+    for i, (fscr, r) in enumerate(outputs):
         # ax.plot(uniques, fscr.real, label="13 Projections")
-        ax.plot(
-            uniques[filter:-filter] / (width / 2),
+        # ax.plot(
+        #     r[filter:-filter] / (width / 2),
+        #     [
+        #         np.mean(np.abs(fscr[i - filter : i + filter]))
+        #         for i in range(filter, len(fscr.real) - filter)
+        #     ],
+        #     label=fq_keys[i],
+        # )
+
+        un_r = np.unique(np.round(r))
+        avg_fscr = np.zeros_like(un_r)
+        for j, u in enumerate(un_r):
+            avg_fscr[j] = np.mean(np.abs(fscr[np.round(r) == u]))
+        # ax.plot(un_r / (width / 2), avg_fscr, label=fq_keys[i])
+
+        # ax.plot(
+        #     un_r[filter:-filter] / (width / 2),
+        #     [
+        #         np.mean(np.abs(avg_fscr[i - filter : i + filter]))
+        #         for i in range(filter, len(avg_fscr.real) - filter)
+        #     ],
+        #     label=fq_keys[i],
+        # )
+
+        # ax.plot(
+        #     r,
+        #     fscr.real,
+        #     label=fq_keys[i],
+        # )
+
+        floating_mean = [np.abs(avg_fscr[0])]
+        floating_mean.extend(
             [
-                np.mean(fscr.real[i - filter : i + filter])
-                for i in range(filter, len(fscr.real) - filter)
-            ],
+                np.mean(np.abs(avg_fscr[i - filter : i + filter]))
+                for i in range(filter + 1, len(avg_fscr.real) - filter)
+            ]
+        )
+        ax.plot(
+            un_r[filter:-filter] / (width / 2),
+            floating_mean,
             label=fq_keys[i],
         )
 
     # ax.legend()
 
-    for i, (fscr, uniques) in enumerate(outputs_enhanced):
-        axe.plot(
-            uniques[filter:-filter] / (width / 2),
+    for i, (fscr, r) in enumerate(outputs_enhanced):
+        # axe.plot(
+        #     r[filter:-filter] / (width / 2),
+        #     [
+        #         np.mean(np.abs(fscr[i - filter : i + filter]))
+        #         for i in range(filter, len(fscr.real) - filter)
+        #     ],
+        #     label=fq_keys[i],
+        # )
+        un_r = np.unique(np.round(r))
+        avg_fscr = np.zeros_like(un_r)
+        for j, u in enumerate(un_r):
+            avg_fscr[j] = np.mean(np.abs(fscr[np.round(r) == u]))
+        # axe.plot(un_r / (width / 2), avg_fscr, label=fq_keys[i])
+
+        floating_mean = [np.abs(avg_fscr[0])]
+        floating_mean.extend(
             [
-                np.mean(fscr.real[i - filter : i + filter])
-                for i in range(filter, len(fscr.real) - filter)
-            ],
+                np.mean(np.abs(avg_fscr[i - filter : i + filter]))
+                for i in range(filter + 1, len(avg_fscr.real) - filter)
+            ]
+        )
+        # axe.plot(
+        #     un_r[filter:-filter] / (width / 2),
+        #     [
+        #         np.mean(np.abs(avg_fscr[i - filter : i + filter]))
+        #         for i in range(filter, len(avg_fscr.real) - filter)
+        #     ],
+        #     label=fq_keys[i],
+        # )
+        axe.plot(
+            un_r[filter:-filter] / (width / 2),
+            floating_mean,
             label=fq_keys[i],
         )
-
     # axe.legend()
 
     ax.set_ylim(0, 1)
     axe.set_ylim(0, 1)
+    ax.set_xlim(0, 1.1)
+    axe.set_xlim(0, 1.1)
+
+    print(un_r.shape)
 
     # ax.legend(
     #     bbox_to_anchor=(0.35, 1.25),
@@ -550,20 +624,29 @@ def plot_attr_development(
     savefile="GAN_global_performance",
     ylim=(0, 1),
     columns=1,
+    max_width=256,
 ):
     def proj_to_factor(x):
-        return 256 * np.pi / 2 / x
+        return max_width * np.pi / 2 / x
 
     def factor_to_proj(x):
-        return 256 * np.pi / 2 / x
+        return max_width * np.pi / 2 / x
 
     fig, ax = plt.subplots(
         1,
         1,
     )
+    filled_markers = (
+        "o",
+        "s",
+        "D",
+        "P",
+        "X",
+        "d",
+    )
 
-    for attr, label in zip(attrs, labels):
-        ax.plot(x, attr, "D:", label=label)
+    for i, (attr, label) in enumerate(zip(attrs, labels)):
+        ax.plot(x, attr, marker=filled_markers[i], linestyle=":", label=label)
     # ax.plot(x, attrs, "D:", label=labels)
 
     ax2 = ax.secondary_xaxis(
@@ -579,7 +662,7 @@ def plot_attr_development(
     ax.set_ylim(ylim)
     # ax.set_ylim([-20,20])
     ax.legend(ncol=columns)
-    ax.set_title(title)
+    # ax.set_title(title)
 
     if save:
         plt.savefig(f"../Results/{folder}/{savefile}.pdf", format="pdf")

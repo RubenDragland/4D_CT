@@ -9,8 +9,8 @@ from multiprocessing import Pool
 root = r"/media/disks/disk2/CT-data/rubensd/Processed_projections/"
 
 names = [
-    # "hourglassV3_13_55",
-    "hourglassV3_13_55_2bin"
+    "hourglassV3_13_55",
+    # "hourglassV3_13_55_2bin"
     # "limestoneV3_17_55_6favg",
     # "limestoneV3_17_55_12favg",
     # "limestoneV3_17_55_24favg",
@@ -19,9 +19,9 @@ names = [
 
 oroot = r"/home/rubensd/Documents/DeepLearning/ReconstructionData"
 
-# x1, x2 = 0, 256  # 672, 928
-# y1, y2 = 0, 256  # 384, 640
-# z1, z2 = 0, 256  # 384, 640
+x1, x2 = 0, 256  # 672, 928
+y1, y2 = 0, 256  # 384, 640
+z1, z2 = 0, 256  # 384, 640
 
 # x1, x2 = 672, 928
 # y1, y2 = 384, 640
@@ -35,9 +35,9 @@ oroot = r"/home/rubensd/Documents/DeepLearning/ReconstructionData"
 # y1, y2 = 124, 388
 # z1, z2 = 124, 388
 
-x1, x2 = 0, 448
-y1, y2 = 0, 264
-z1, z2 = 0, 264
+# x1, x2 = 0, 448
+# y1, y2 = 0, 264
+# z1, z2 = 0, 264
 
 # x1, x2 = 1000, 1001
 # y1, y2 = 0, 1024
@@ -71,14 +71,17 @@ identifiers = [
     # "Rec_0_1_fdk_enhanced_800512512",
     # "Rec_0_2_fdk_enhanced_800512512",
     # "Rec_0_3_fdk_enhanced_800512512",
-    # "Rec_0_4_fdk",  # _enhanced_800512512",
+    "Rec_0_4_fdk_enhanced_800512512",
     # "Rec_0_5_fdk_enhanced_800512512",
     # "Rec_0_6_fdk",  # _enhanced_800512512",
     # "Rec_0_7_fdk",  # _enhanced_800512512",
     # "Rec_0_8_fdk",  # _enhanced_800512512",
     # "Wedge_Rec_0_fdk_0_enhanced_442256256",
     # "Wedge_Rec_0_fdk_1_enhanced_442256256",
-    "Rec_25_4_fdk_enhanced_442256256",
+    # "Rec_0_1_fdk_enhanced_442256256",
+    # "Rec_54_1_fdk_enhanced_442256256",
+    # "Wedge_Rec_0_fdk_0_enhanced_442256256",
+    # "Wedge_Rec_0_fdk_1_enhanced_442256256",
 ]
 
 # Ignore parallel. Should take 0 seconds anyway.

@@ -715,9 +715,9 @@ class EquinorDynamicCT(EquinorDataCT):
                         idxs[2][0] : idxs[2][1],
                     ]
                 )
-            else:
+            else:  # RSD: NB! Changed here
                 rec = np.squeeze(
-                    o[name][str(idx).zfill(5)][
+                    o[name][idx][
                         idxs[0][0] : idxs[0][1],
                         idxs[1][0] : idxs[1][1],
                         idxs[2][0] : idxs[2][1],
